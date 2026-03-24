@@ -1630,7 +1630,7 @@ function Settings({ state, dispatch }) {
       </div>
 
       <div className="text-center mt-5" style={{color:"var(--text3)",fontSize:12}}>
-        💰 FinanceApp v2.0 · Seus dados são salvos localmente no seu dispositivo
+        💰 Monetra v1.0 · Seus dados são salvos localmente no seu dispositivo
       </div>
     </div>
   );
@@ -1693,7 +1693,7 @@ export default function App() {
         <nav className="nav-side" style={{display:"none"}} id="nav-side">
           <div className="nav-logo">
             <div className="nav-logo-icon"><Wallet size={20} color="var(--primary)"/></div>
-            <span className="nav-logo-text">FinanceApp</span>
+            <span className="nav-logo-text">Monetra</span>
           </div>
           {allTabs.map(({id, label, Icon}) => (
             <button key={id} className={`nav-side-btn ${tab===id?"active":""}`} onClick={()=>setTab(id)}>
