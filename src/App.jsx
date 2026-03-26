@@ -1,5 +1,5 @@
 // ============================================================
-//  💰 FinanceApp — Controle Financeiro Pessoal
+//  💰 Monetra — Controle Financeiro Pessoal
 //  Stack: React + Recharts + Lucide
 //  Persistência: localStorage
 // ============================================================
@@ -446,7 +446,7 @@ function reducer(state, action) {
 // ─────────────────────────────────────────────
 //  STORAGE
 // ─────────────────────────────────────────────
-const STORE_KEY = "financeapp_v2";
+const STORE_KEY = "monetra_v2";
 function saveState(s) { try { localStorage.setItem(STORE_KEY, JSON.stringify(s)); } catch(_) {} }
 function loadState() { try { const v = localStorage.getItem(STORE_KEY); return v ? JSON.parse(v) : null; } catch(_) { return null; } }
 
@@ -1930,7 +1930,7 @@ function Settings({ state, dispatch }) {
       </div>
 
       <div className="text-center mt-5" style={{color:"var(--text3)",fontSize:12}}>
-        💰 FinanceApp v2.0 · Seus dados são salvos localmente no seu dispositivo
+        💰 Monetra v2.0 · Seus dados são salvos localmente no seu dispositivo
       </div>
     </div>
   );
@@ -1993,7 +1993,7 @@ export default function App() {
         <nav className="nav-side" style={{display:"none"}} id="nav-side">
           <div className="nav-logo">
             <div className="nav-logo-icon"><Wallet size={20} color="var(--primary)"/></div>
-            <span className="nav-logo-text">FinanceApp</span>
+            <span className="nav-logo-text">Monetra</span>
           </div>
           {allTabs.map(({id, label, Icon}) => (
             <button key={id} className={`nav-side-btn ${tab===id?"active":""}`} onClick={()=>setTab(id)}>
