@@ -834,40 +834,14 @@ function Income({ state, dispatch }) {
   );
 }
 
+
 // ─────────────────────────────────────────────
-//  PRIORIDADES (GASTOS FIXOS + VISÃO POR TIER)
+//  PRIORIDADES / GASTOS FIXOS
 // ─────────────────────────────────────────────
 const PRIORITY_CONFIG = {
-  essential: {
-    label: "Essencial",
-    desc: "Não pode cortar — sobrevivência e obrigações",
-    color: "#FF6B6B",
-    bg: "rgba(255,107,107,0.08)",
-    border: "rgba(255,107,107,0.25)",
-    dot: "🔴",
-    icon: "🛡️",
-    tip: "Gastos essenciais devem ficar abaixo de 50% da renda.",
-  },
-  important: {
-    label: "Importante",
-    desc: "Relevantes para qualidade de vida, mas ajustáveis",
-    color: "#FFB547",
-    bg: "rgba(255,181,71,0.08)",
-    border: "rgba(255,181,71,0.25)",
-    dot: "🟡",
-    icon: "⚡",
-    tip: "Revise se algum item pode ser reduzido sem impacto real.",
-  },
-  optional: {
-    label: "Opcional",
-    desc: "Conforto e lazer — primeira linha de corte",
-    color: "#7C83F5",
-    bg: "rgba(124,131,245,0.08)",
-    border: "rgba(124,131,245,0.25)",
-    dot: "🔵",
-    icon: "✨",
-    tip: "Em caso de aperto, esses são os primeiros a revisar.",
-  },
+  essential: { label:"Essencial", desc:"Não pode cortar — sobrevivência e obrigações", color:"#FF6B6B", bg:"rgba(255,107,107,0.08)", border:"rgba(255,107,107,0.25)", dot:"🔴", icon:"🛡️", tip:"Gastos essenciais devem ficar abaixo de 50% da renda." },
+  important:  { label:"Importante",  desc:"Relevantes para qualidade de vida, mas ajustáveis",    color:"#FFB547", bg:"rgba(255,181,71,0.08)",  border:"rgba(255,181,71,0.25)",  dot:"🟡", icon:"⚡", tip:"Revise se algum item pode ser reduzido sem impacto real." },
+  optional:   { label:"Opcional",   desc:"Conforto e lazer — primeira linha de corte",            color:"#7C83F5", bg:"rgba(124,131,245,0.08)", border:"rgba(124,131,245,0.25)", dot:"🔵", icon:"✨", tip:"Em caso de aperto, esses são os primeiros a revisar." },
 };
 
 function PriorityTierCard({ tier, items, totalIncome, onEdit, onDelete, onAdd }) {
@@ -875,93 +849,43 @@ function PriorityTierCard({ tier, items, totalIncome, onEdit, onDelete, onAdd })
   const total = items.reduce((s, x) => s + x.amount, 0);
   const pct = totalIncome > 0 ? (total / totalIncome) * 100 : 0;
   const [expanded, setExpanded] = useState(true);
-
   if (items.length === 0) return null;
-
   return (
-    <div style={{
-      borderRadius: 16, border: `1px solid ${cfg.border}`,
-      background: cfg.bg, overflow: "hidden", marginBottom: 14,
-    }}>
-      {/* HEADER DO TIER */}
-      <button onClick={() => setExpanded(e => !e)} style={{
-        width: "100%", background: "transparent", border: "none",
-        cursor: "pointer", padding: "14px 16px",
-        display: "flex", alignItems: "center", gap: 10,
-      }}>
-        <div style={{
-          width: 38, height: 38, borderRadius: 12, flexShrink: 0,
-          background: `${cfg.color}22`,
-          display: "flex", alignItems: "center", justifyContent: "center",
-          fontSize: 18,
-        }}>{cfg.icon}</div>
-
-        <div style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontWeight: 700, fontSize: 15, color: cfg.color }}>{cfg.dot} {cfg.label}</span>
-            <span style={{
-              background: `${cfg.color}22`, color: cfg.color,
-              fontSize: 10, fontWeight: 800, padding: "2px 8px",
-              borderRadius: 20, letterSpacing: 0.5,
-            }}>{items.length} {items.length === 1 ? "item" : "itens"}</span>
+    <div style={{ borderRadius:16, border:`1px solid ${cfg.border}`, background:cfg.bg, overflow:"hidden", marginBottom:14 }}>
+      <button onClick={() => setExpanded(e => !e)} style={{ width:"100%", background:"transparent", border:"none", cursor:"pointer", padding:"14px 16px", display:"flex", alignItems:"center", gap:10 }}>
+        <div style={{ width:38, height:38, borderRadius:12, flexShrink:0, background:`${cfg.color}22`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>{cfg.icon}</div>
+        <div style={{ flex:1, textAlign:"left", minWidth:0 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+            <span style={{ fontWeight:700, fontSize:15, color:cfg.color }}>{cfg.dot} {cfg.label}</span>
+            <span style={{ background:`${cfg.color}22`, color:cfg.color, fontSize:10, fontWeight:800, padding:"2px 8px", borderRadius:20, letterSpacing:0.5 }}>{items.length} {items.length===1?"item":"itens"}</span>
           </div>
-          <div style={{ fontSize: 12, color: "var(--text3)", marginTop: 2 }}>{cfg.desc}</div>
+          <div style={{ fontSize:12, color:"var(--text3)", marginTop:2 }}>{cfg.desc}</div>
         </div>
-
-        <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <div style={{ fontFamily: "JetBrains Mono", fontWeight: 800, fontSize: 15, color: cfg.color }}>{fmt(total)}</div>
-          <div style={{ fontSize: 11, color: "var(--text3)" }}>{pct.toFixed(1)}% da renda</div>
+        <div style={{ textAlign:"right", flexShrink:0 }}>
+          <div style={{ fontFamily:"JetBrains Mono", fontWeight:800, fontSize:15, color:cfg.color }}>{fmt(total)}</div>
+          <div style={{ fontSize:11, color:"var(--text3)" }}>{pct.toFixed(1)}% da renda</div>
         </div>
       </button>
-
-      {/* BARRA DE % */}
-      <div style={{ height: 4, background: "rgba(255,255,255,0.05)", margin: "0 16px" }}>
-        <div style={{
-          height: "100%", width: `${Math.min(pct, 100)}%`,
-          background: cfg.color, borderRadius: 4,
-          transition: "width 0.6s cubic-bezier(0.34,1.56,0.64,1)",
-        }} />
+      <div style={{ height:4, background:"rgba(255,255,255,0.05)", margin:"0 16px" }}>
+        <div style={{ height:"100%", width:`${Math.min(pct,100)}%`, background:cfg.color, borderRadius:4, transition:"width 0.6s" }} />
       </div>
-
-      {/* ITENS */}
       {expanded && (
-        <div style={{ padding: "8px 16px 14px" }}>
-          <div style={{ fontSize: 11, color: "var(--text3)", marginTop: 10, marginBottom: 8, fontWeight: 600, letterSpacing: 0.4, textTransform: "uppercase" }}>
-            💡 {cfg.tip}
-          </div>
+        <div style={{ padding:"8px 16px 14px" }}>
+          <div style={{ fontSize:11, color:"var(--text3)", marginTop:10, marginBottom:8, fontWeight:600, letterSpacing:0.4, textTransform:"uppercase" }}>💡 {cfg.tip}</div>
           {items.map(item => (
-            <div key={item.id} style={{
-              display: "flex", alignItems: "center", gap: 10,
-              padding: "10px 0", borderTop: "1px solid rgba(255,255,255,0.05)",
-            }}>
-              <div style={{
-                width: 6, height: 32, borderRadius: 3,
-                background: cfg.color, flexShrink: 0,
-              }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text)" }} className="truncate">{item.name}</div>
-                {item.dueDay && (
-                  <div style={{ fontSize: 11, color: "var(--text3)" }}>Vence dia {item.dueDay}</div>
-                )}
+            <div key={item.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderTop:"1px solid rgba(255,255,255,0.05)" }}>
+              <div style={{ width:6, height:32, borderRadius:3, background:cfg.color, flexShrink:0 }} />
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:14, fontWeight:600, color:"var(--text)" }} className="truncate">{item.name}</div>
+                {item.dueDay && <div style={{ fontSize:11, color:"var(--text3)" }}>Vence dia {item.dueDay}</div>}
               </div>
-              <div style={{ fontFamily: "JetBrains Mono", fontWeight: 700, fontSize: 14, color: cfg.color, flexShrink: 0 }}>
-                {fmt(item.amount)}
-              </div>
-              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => onEdit(item)}><Edit2 size={12} /></button>
-              <button className="btn btn-danger btn-icon btn-sm" onClick={() => onDelete(item.id)}><Trash2 size={12} /></button>
+              <div style={{ fontFamily:"JetBrains Mono", fontWeight:700, fontSize:14, color:cfg.color, flexShrink:0 }}>{fmt(item.amount)}</div>
+              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => onEdit(item)}><Edit2 size={12}/></button>
+              <button className="btn btn-danger btn-icon btn-sm" onClick={() => onDelete(item.id)}><Trash2 size={12}/></button>
             </div>
           ))}
-          <button
-            onClick={() => onAdd(tier)}
-            style={{
-              marginTop: 10, width: "100%", padding: "9px",
-              borderRadius: 10, border: `1px dashed ${cfg.border}`,
-              background: "transparent", color: cfg.color,
-              fontSize: 13, fontWeight: 600, cursor: "pointer",
-              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-              fontFamily: "Outfit, sans-serif",
-            }}>
-            <Plus size={14} /> Adicionar {cfg.label}
+          <button onClick={() => onAdd(tier)} style={{ marginTop:10, width:"100%", padding:"9px", borderRadius:10, border:`1px dashed ${cfg.border}`, background:"transparent", color:cfg.color, fontSize:13, fontWeight:600, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6, fontFamily:"Outfit,sans-serif" }}>
+            <Plus size={14}/> Adicionar {cfg.label}
           </button>
         </div>
       )}
@@ -971,194 +895,146 @@ function PriorityTierCard({ tier, items, totalIncome, onEdit, onDelete, onAdd })
 
 function FixedExpenses({ state, dispatch }) {
   const [modal, setModal] = useState(false);
-  const [edit, setEdit] = useState(null);
-  const [form, setForm] = useState({ name: "", amount: "", dueDay: "", priority: "essential" });
+  const [edit, setEdit]   = useState(null);
+  const [form, setForm]   = useState({ name:"", amount:"", dueDay:"", priority:"essential" });
 
-  const totalIncome = state.income.reduce((s, x) => s + x.amount, 0);
-  const total = state.fixedExpenses.reduce((s, x) => s + x.amount, 0);
+  const totalIncome = state.income.reduce((s,x)=>s+x.amount,0);
+  const total       = state.fixedExpenses.reduce((s,x)=>s+x.amount,0);
 
   const byPriority = useMemo(() => ({
-    essential: state.fixedExpenses.filter(x => (x.priority || "essential") === "essential"),
-    important:  state.fixedExpenses.filter(x => x.priority === "important"),
-    optional:   state.fixedExpenses.filter(x => x.priority === "optional"),
+    essential: state.fixedExpenses.filter(x=>(x.priority||"essential")==="essential"),
+    important:  state.fixedExpenses.filter(x=>x.priority==="important"),
+    optional:   state.fixedExpenses.filter(x=>x.priority==="optional"),
   }), [state.fixedExpenses]);
 
-  const essentialPct  = totalIncome > 0 ? (byPriority.essential.reduce((s,x)=>s+x.amount,0)  / totalIncome) * 100 : 0;
-  const importantPct  = totalIncome > 0 ? (byPriority.important.reduce((s,x)=>s+x.amount,0)   / totalIncome) * 100 : 0;
-  const optionalPct   = totalIncome > 0 ? (byPriority.optional.reduce((s,x)=>s+x.amount,0)    / totalIncome) * 100 : 0;
-  const savingsPct    = Math.max(0, 100 - essentialPct - importantPct - optionalPct);
+  const essentialTotal = byPriority.essential.reduce((s,x)=>s+x.amount,0);
+  const importantTotal  = byPriority.important.reduce((s,x)=>s+x.amount,0);
+  const optionalTotal   = byPriority.optional.reduce((s,x)=>s+x.amount,0);
+  const savingsVal      = Math.max(0, totalIncome - total);
+  const savingsPct      = totalIncome > 0 ? (savingsVal/totalIncome)*100 : 0;
+  const pct             = totalIncome > 0 ? (total/totalIncome)*100 : 0;
 
-  function openAdd(priority = "essential") {
-    setForm({ name: "", amount: "", dueDay: "", priority });
-    setEdit(null); setModal(true);
-  }
-  function openEdit(item) {
-    setForm({ name: item.name, amount: String(item.amount), dueDay: String(item.dueDay || ""), priority: item.priority || "essential" });
-    setEdit(item); setModal(true);
-  }
+  function openAdd(priority = "essential") { setForm({ name:"", amount:"", dueDay:"", priority }); setEdit(null); setModal(true); }
+  function openEdit(item) { setForm({ name:item.name, amount:String(item.amount), dueDay:String(item.dueDay||""), priority:item.priority||"essential" }); setEdit(item); setModal(true); }
   function save() {
-    if (!form.name.trim() || !form.amount) return;
-    const p = { name: form.name.trim(), amount: parseFloat(form.amount), dueDay: parseInt(form.dueDay) || null, priority: form.priority };
-    if (edit) dispatch({ type: "UPD_FIXED", p: { ...edit, ...p } });
-    else dispatch({ type: "ADD_FIXED", p });
+    if (!form.name.trim()||!form.amount) return;
+    const p = { name:form.name.trim(), amount:parseFloat(form.amount), dueDay:parseInt(form.dueDay)||null, priority:form.priority };
+    if (edit) dispatch({type:"UPD_FIXED",p:{...edit,...p}});
+    else      dispatch({type:"ADD_FIXED",p});
     setModal(false);
   }
 
   return (
     <div className="page fade-in">
-      <div className="page-header" style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+      <div className="page-header" style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between" }}>
         <div>
-          <h1>Prioridades</h1>
-          <div className="text-muted text-sm mt-1">Visualize e reorganize seus gastos fixos</div>
+          <h1>Gastos Fixos</h1>
+          <div className="text-muted text-sm mt-1">Organizados por prioridade</div>
         </div>
-        <button className="btn btn-primary btn-sm" onClick={() => openAdd("essential")}>
-          <Plus size={14} />Adicionar
-        </button>
+        <button className="btn btn-primary btn-sm" onClick={()=>openAdd("essential")}><Plus size={14}/>Adicionar</button>
       </div>
 
-      {/* BARRA DE ALOCAÇÃO DE RENDA */}
-      <div className="card mb-4" style={{ border: "1px solid rgba(255,255,255,0.08)" }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text2)", marginBottom: 10, textTransform: "uppercase", letterSpacing: 0.5 }}>
-          Como sua renda é alocada
-        </div>
-        {/* BARRA SEGMENTADA */}
-        <div style={{ display: "flex", height: 14, borderRadius: 20, overflow: "hidden", gap: 2, marginBottom: 12 }}>
-          {essentialPct > 0 && <div style={{ flex: essentialPct, background: "#FF6B6B", borderRadius: "20px 0 0 20px", minWidth: 4, transition: "flex 0.6s" }} />}
-          {importantPct > 0 && <div style={{ flex: importantPct, background: "#FFB547", minWidth: 4, transition: "flex 0.6s" }} />}
-          {optionalPct  > 0 && <div style={{ flex: optionalPct,  background: "#7C83F5", minWidth: 4, transition: "flex 0.6s" }} />}
-          {savingsPct   > 0 && <div style={{ flex: savingsPct,   background: "rgba(61,213,152,0.5)", borderRadius: "0 20px 20px 0", minWidth: 4, transition: "flex 0.6s" }} />}
-        </div>
-        {/* LEGENDA */}
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px 16px" }}>
-          {[
-            { label: "🔴 Essencial",  pct: essentialPct, color: "#FF6B6B",  val: byPriority.essential.reduce((s,x)=>s+x.amount,0) },
-            { label: "🟡 Importante", pct: importantPct, color: "#FFB547",  val: byPriority.important.reduce((s,x)=>s+x.amount,0) },
-            { label: "🔵 Opcional",   pct: optionalPct,  color: "#7C83F5",  val: byPriority.optional.reduce((s,x)=>s+x.amount,0) },
-            { label: "💚 Poupança",   pct: savingsPct,   color: "#3DD598",  val: Math.max(0, totalIncome - total) },
-          ].map(r => (
-            <div key={r.label} style={{ display: "flex", alignItems: "center", gap: 7 }}>
-              <div style={{ width: 10, height: 10, borderRadius: 3, background: r.color, flexShrink: 0 }} />
-              <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text2)" }}>{r.label}</div>
-                <div style={{ fontSize: 11, color: "var(--text3)" }}>{fmt(r.val)} · {r.pct.toFixed(1)}%</div>
+      {/* BARRA DE ALOCAÇÃO */}
+      {state.fixedExpenses.length > 0 && (
+        <div className="card mb-4" style={{ padding:"16px" }}>
+          <div style={{ fontSize:12, fontWeight:700, color:"var(--text2)", textTransform:"uppercase", letterSpacing:0.5, marginBottom:10 }}>Como sua renda é distribuída</div>
+          <div style={{ display:"flex", height:12, borderRadius:20, overflow:"hidden", gap:2, marginBottom:12 }}>
+            {[
+              {v:essentialTotal, c:"#FF6B6B"},
+              {v:importantTotal,  c:"#FFB547"},
+              {v:optionalTotal,   c:"#7C83F5"},
+              {v:savingsVal,      c:"rgba(61,213,152,0.5)"},
+            ].filter(x=>x.v>0&&totalIncome>0).map((x,i)=>(
+              <div key={i} style={{ flex:(x.v/totalIncome)*100, background:x.c, minWidth:4 }}/>
+            ))}
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"6px 12px" }}>
+            {[
+              {dot:"🔴", label:"Essencial",  val:essentialTotal, color:"#FF6B6B"},
+              {dot:"🟡", label:"Importante",  val:importantTotal,  color:"#FFB547"},
+              {dot:"🔵", label:"Opcional",   val:optionalTotal,   color:"#7C83F5"},
+              {dot:"💚", label:"Sobra/Poupa",val:savingsVal,      color:"#3DD598"},
+            ].map(r=>(
+              <div key={r.label} style={{ display:"flex", alignItems:"center", gap:7 }}>
+                <div style={{ width:9, height:9, borderRadius:3, background:r.color, flexShrink:0 }}/>
+                <div>
+                  <div style={{ fontSize:11, color:"var(--text2)", fontWeight:600 }}>{r.dot} {r.label}</div>
+                  <div style={{ fontSize:12, fontFamily:"JetBrains Mono", fontWeight:700, color:r.color }}>{fmt(r.val)}</div>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
+          <div style={{ marginTop:12, padding:"9px 12px", borderRadius:10, background:"rgba(255,255,255,0.03)", border:"1px solid var(--border)" }}>
+            <span style={{ fontSize:12, fontWeight:600, color: savingsPct<10?"#FF6B6B": optionalTotal>totalIncome*0.2?"#FFB547":"#3DD598" }}>
+              {savingsPct<10&&totalIncome>0 ? `⚠️ Você sobra apenas ${savingsPct.toFixed(0)}% da renda. Revise os opcionais 🔵`
+                : optionalTotal>totalIncome*0.2 ? `💡 ${((optionalTotal/totalIncome)*100).toFixed(0)}% da renda em opcionais — primeira área para cortar`
+                : `✅ Boa alocação! Você sobra ${fmt(savingsVal)} por mês.`}
+            </span>
+          </div>
         </div>
+      )}
 
-        {/* INSIGHT AUTOMÁTICO */}
-        <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10, background: "rgba(255,255,255,0.04)", border: "1px solid rgba(255,255,255,0.06)" }}>
-          {savingsPct < 10 ? (
-            <div style={{ fontSize: 12, color: "#FF6B6B" }}>
-              ⚠️ <strong>Atenção:</strong> Você está poupando apenas {savingsPct.toFixed(1)}% da renda. Revise gastos opcionais.
-            </div>
-          ) : optionalPct > 20 ? (
-            <div style={{ fontSize: 12, color: "#FFB547" }}>
-              💡 <strong>Dica:</strong> {optionalPct.toFixed(1)}% da renda em opcionais. Reduzir pode aumentar muito sua poupança.
-            </div>
-          ) : savingsPct >= 20 ? (
-            <div style={{ fontSize: 12, color: "#3DD598" }}>
-              ✅ <strong>Ótimo!</strong> Você está poupando {savingsPct.toFixed(1)}% da renda. Continue assim!
-            </div>
-          ) : (
-            <div style={{ fontSize: 12, color: "var(--text2)" }}>
-              📊 Sua alocação está equilibrada. Tente chegar a 20% de poupança.
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* RESUMO RÁPIDO */}
+      {/* STATS */}
       <div className="grid-2 mb-4">
         <div className="stat-card">
-          <div className="stat-label">Total fixo mensal</div>
-          <div className="stat-value" style={{ color: "var(--danger)" }}>{fmt(total)}</div>
-          <div className="stat-sub">{totalIncome > 0 ? ((total/totalIncome)*100).toFixed(0) : 0}% da renda</div>
+          <div className="stat-label">Total comprometido</div>
+          <div className="stat-value" style={{color:"var(--danger)"}}>{fmt(total)}</div>
+          <div className="stat-sub">{pct.toFixed(0)}% da renda</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">Disponível após fixos</div>
-          <div className="stat-value" style={{ color: "var(--success)" }}>{fmt(Math.max(0, totalIncome - total))}</div>
+          <div className="stat-value" style={{color:"var(--success)"}}>{fmt(Math.max(0,totalIncome-total))}</div>
           <div className="stat-sub">Para variáveis e poupança</div>
         </div>
       </div>
 
-      {/* ALERTAS */}
-      {essentialPct > 50 && <AlertBanner type="danger" msg={`🔴 Essenciais consomem ${essentialPct.toFixed(0)}% da renda (ideal: abaixo de 50%)`} />}
-      {optionalPct > 15 && <AlertBanner type="warning" msg={`🔵 Opcionais consomem ${optionalPct.toFixed(0)}% da renda — primeira área a revisar em caso de aperto`} />}
-      {savingsPct < 10 && total > 0 && <AlertBanner type="danger" msg={`⚠️ Poupança de ${savingsPct.toFixed(1)}% está abaixo do mínimo recomendado de 10%`} />}
+      {pct > 60 && <AlertBanner type="warning" msg={`Atenção: ${pct.toFixed(0)}% da renda comprometida com fixos (ideal: abaixo de 50%)`} />}
 
-      {/* TIERS POR PRIORIDADE */}
+      {/* TIERS */}
       {state.fixedExpenses.length === 0 ? (
-        <div className="card"><Empty icon="🏠" text="Nenhuma despesa fixa cadastrada" /></div>
+        <div className="card" style={{ textAlign:"center", padding:"40px 20px" }}>
+          <div style={{ fontSize:48, marginBottom:12 }}>🏠</div>
+          <h3 style={{ marginBottom:8 }}>Nenhum gasto fixo cadastrado</h3>
+          <p className="text-muted text-sm" style={{ marginBottom:20, lineHeight:1.6 }}>Gastos fixos são contas que você paga todo mês — aluguel, internet, streaming, academia...</p>
+          <button className="btn btn-primary" onClick={()=>openAdd("essential")}><Plus size={14}/>Adicionar primeiro gasto</button>
+        </div>
       ) : (
         <>
-          <PriorityTierCard tier="essential" items={byPriority.essential} totalIncome={totalIncome}
-            onEdit={openEdit} onDelete={id => dispatch({ type: "DEL_FIXED", id })} onAdd={openAdd} />
-          <PriorityTierCard tier="important"  items={byPriority.important}  totalIncome={totalIncome}
-            onEdit={openEdit} onDelete={id => dispatch({ type: "DEL_FIXED", id })} onAdd={openAdd} />
-          <PriorityTierCard tier="optional"  items={byPriority.optional}   totalIncome={totalIncome}
-            onEdit={openEdit} onDelete={id => dispatch({ type: "DEL_FIXED", id })} onAdd={openAdd} />
+          <PriorityTierCard tier="essential" items={byPriority.essential} totalIncome={totalIncome} onEdit={openEdit} onDelete={id=>dispatch({type:"DEL_FIXED",id})} onAdd={openAdd}/>
+          <PriorityTierCard tier="important"  items={byPriority.important}  totalIncome={totalIncome} onEdit={openEdit} onDelete={id=>dispatch({type:"DEL_FIXED",id})} onAdd={openAdd}/>
+          <PriorityTierCard tier="optional"  items={byPriority.optional}   totalIncome={totalIncome} onEdit={openEdit} onDelete={id=>dispatch({type:"DEL_FIXED",id})} onAdd={openAdd}/>
+          <button className="btn btn-ghost btn-full mt-2" onClick={()=>openAdd("essential")}><Plus size={14}/>Adicionar nova despesa</button>
         </>
       )}
 
-      {/* BOTÃO GERAL DE ADICIONAR quando já tem itens */}
-      {state.fixedExpenses.length > 0 && (
-        <button className="btn btn-ghost btn-full mt-2" onClick={() => openAdd("essential")}>
-          <Plus size={14} /> Adicionar nova despesa fixa
-        </button>
-      )}
-
       {modal && (
-        <Modal title={edit ? "Editar Despesa" : "Nova Despesa Fixa"} onClose={() => setModal(false)}>
-          {/* SELETOR VISUAL DE PRIORIDADE */}
+        <Modal title={edit?"Editar Despesa":"Nova Despesa Fixa"} onClose={()=>setModal(false)}>
           <div className="form-group">
             <label className="form-label">Prioridade</label>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
-              {Object.entries(PRIORITY_CONFIG).map(([key, cfg]) => (
-                <button key={key} onClick={() => setForm({ ...form, priority: key })}
-                  style={{
-                    padding: "10px 6px", borderRadius: 10, cursor: "pointer",
-                    border: `2px solid ${form.priority === key ? cfg.color : "transparent"}`,
-                    background: form.priority === key ? cfg.bg : "var(--s2)",
-                    display: "flex", flexDirection: "column", alignItems: "center", gap: 4,
-                    transition: "all 0.18s", fontFamily: "Outfit, sans-serif",
-                  }}>
-                  <span style={{ fontSize: 18 }}>{cfg.dot}</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: form.priority === key ? cfg.color : "var(--text3)" }}>
-                    {cfg.label}
-                  </span>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8, marginBottom:6 }}>
+              {Object.entries(PRIORITY_CONFIG).map(([key,cfg])=>(
+                <button key={key} onClick={()=>setForm({...form,priority:key})}
+                  style={{ padding:"10px 6px", borderRadius:10, cursor:"pointer", border:`2px solid ${form.priority===key?cfg.color:"transparent"}`, background:form.priority===key?cfg.bg:"var(--s2)", display:"flex", flexDirection:"column", alignItems:"center", gap:4, transition:"all 0.18s", fontFamily:"Outfit,sans-serif" }}>
+                  <span style={{ fontSize:18 }}>{cfg.dot}</span>
+                  <span style={{ fontSize:11, fontWeight:700, color:form.priority===key?cfg.color:"var(--text3)" }}>{cfg.label}</span>
                 </button>
               ))}
             </div>
-            <div style={{ fontSize: 12, color: "var(--text3)", marginTop: 6 }}>
-              {PRIORITY_CONFIG[form.priority].desc}
-            </div>
+            <div style={{ fontSize:11, color:"var(--text3)" }}>{PRIORITY_CONFIG[form.priority].desc}</div>
           </div>
-
-          <div className="form-group">
-            <label className="form-label">Nome</label>
-            <input placeholder="Ex: Aluguel, Internet..." value={form.name}
-              onChange={e => setForm({ ...form, name: e.target.value })} />
+          <div className="form-group"><label className="form-label">Nome</label>
+            <input placeholder="Ex: Aluguel, Internet..." value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>
           </div>
           <div className="form-row">
-            <div className="form-group">
-              <label className="form-label">Valor (R$)</label>
-              <input type="number" placeholder="0,00" value={form.amount}
-                onChange={e => setForm({ ...form, amount: e.target.value })} />
+            <div className="form-group"><label className="form-label">Valor (R$)</label>
+              <input type="number" placeholder="0,00" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})}/>
             </div>
-            <div className="form-group">
-              <label className="form-label">Dia do vencimento</label>
-              <input type="number" min="1" max="31" placeholder="Ex: 10" value={form.dueDay}
-                onChange={e => setForm({ ...form, dueDay: e.target.value })} />
+            <div className="form-group"><label className="form-label">Vence dia</label>
+              <input type="number" min="1" max="31" placeholder="Ex: 10" value={form.dueDay} onChange={e=>setForm({...form,dueDay:e.target.value})}/>
             </div>
           </div>
           <button className="btn btn-primary btn-full mt-3" onClick={save}>💾 Salvar</button>
-          {edit && (
-            <button className="btn btn-danger btn-full mt-2"
-              onClick={() => { dispatch({ type: "DEL_FIXED", id: edit.id }); setModal(false); }}>
-              🗑️ Excluir
-            </button>
-          )}
+          {edit && <button className="btn btn-danger btn-full mt-2" onClick={()=>{dispatch({type:"DEL_FIXED",id:edit.id});setModal(false);}}>🗑️ Excluir</button>}
         </Modal>
       )}
     </div>
