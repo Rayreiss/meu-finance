@@ -1,6 +1,6 @@
 {
-  "name": "FinanceApp",
-  "short_name": "Finanças",
+  "name": "Monetra",
+  "short_name": "Monetra",
   "description": "Controle financeiro pessoal",
   "start_url": "/",
   "display": "standalone",
