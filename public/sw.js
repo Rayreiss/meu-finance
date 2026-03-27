@@ -1,17 +1,23 @@
-var CACHE = "monetra-v1";
-var ASSETS = ["/", "/index.html"];
+var CACHE = "monetra-v3";
 
 self.addEventListener("install", function(e) {
   self.skipWaiting();
-  e.waitUntil(caches.open(CACHE).then(function(c) {
-    return c.addAll(ASSETS);
-  }));
+});
+
+self.addEventListener("activate", function(e) {
+  e.waitUntil(
+    caches.keys().then(function(keys) {
+      return Promise.all(
+        keys.map(function(key) {
+          return caches.delete(key);
+        })
+      );
+    })
+  );
 });
 
 self.addEventListener("fetch", function(e) {
-  e.respondWith(
-    caches.match(e.request).then(function(r) {
-      return r || fetch(e.request);
-    })
-  );
+  e.respondWith(fetch(e.request).catch(function() {
+    return caches.match(e.request);
+  }));
 });
