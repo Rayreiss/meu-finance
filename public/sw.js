@@ -1,12 +1,17 @@
-const CACHE = "financeapp-v1";
-const ASSETS = ["/", "/index.html"];
+var CACHE = "monetra-v1";
+var ASSETS = ["/", "/index.html"];
 
-self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
+self.addEventListener("install", function(e) {
+  self.skipWaiting();
+  e.waitUntil(caches.open(CACHE).then(function(c) {
+    return c.addAll(ASSETS);
+  }));
 });
 
-self.addEventListener("fetch", e => {
+self.addEventListener("fetch", function(e) {
   e.respondWith(
-    caches.match(e.request).then(r => r || fetch(e.request))
+    caches.match(e.request).then(function(r) {
+      return r || fetch(e.request);
+    })
   );
 });
