@@ -395,21 +395,49 @@ function getSpendingAlerts(categories, transactions, month, year) {
   return alerts;
 }
 
+
+// Helper: chave de mês "YYYY-MM"
+const monthKey = (m, y) => `${y}-${String(m+1).padStart(2,'0')}`;
+
+// Renda efetiva do mês (real se registrada, senão esperada)
+function effectiveIncome(item, month, year) {
+  const k = monthKey(month, year);
+  return (item.actualAmounts && item.actualAmounts[k] != null)
+    ? item.actualAmounts[k] : item.amount;
+}
+
+// Gasto fixo efetivo do mês (real se registrado, senão estimado)
+function effectiveFixed(item, month, year) {
+  if (!item.isVariable) return item.amount;
+  const k = monthKey(month, year);
+  return (item.actualAmounts && item.actualAmounts[k] != null)
+    ? item.actualAmounts[k] : item.amount;
+}
+
+const PAYMENT_METHODS = [
+  { id:"pix",    label:"PIX",      icon:"📱", color:"#38BDF8" },
+  { id:"debit",  label:"Débito",   icon:"🏧", color:"#3DD598" },
+  { id:"credit", label:"Crédito",  icon:"💳", color:"#7C83F5" },
+  { id:"vr",     label:"VR/VA",    icon:"🍽️", color:"#FFB547" },
+  { id:"cash",   label:"Dinheiro", icon:"💵", color:"#8B93B0" },
+];
+
 // ─────────────────────────────────────────────
 //  ESTADO INICIAL
 // ─────────────────────────────────────────────
 const INIT_STATE = {
-  income: [{ id:"i1", name:"Salário", amount:5000, recurring:true }],
+  income: [{ id:"i1", name:"Salário", amount:5000, recurring:true, isVariable:true, actualAmounts:{} }],
   fixedExpenses: [
-    { id:"f1", name:"Aluguel", amount:1500, dueDay:5, priority:"essential" },
-    { id:"f2", name:"Internet", amount:120, dueDay:10, priority:"essential" },
-    { id:"f3", name:"Streaming", amount:55, dueDay:15, priority:"optional" },
+    { id:"f1", name:"Aluguel",   amount:1500, dueDay:5,  priority:"essential", isVariable:false, actualAmounts:{} },
+    { id:"f2", name:"Internet",  amount:120,  dueDay:10, priority:"essential", isVariable:false, actualAmounts:{} },
+    { id:"f3", name:"Streaming", amount:55,   dueDay:15, priority:"optional",  isVariable:false, actualAmounts:{} },
   ],
   variableCategories: DEFAULT_CATS,
   transactions: [],
   creditCards: [],
   cardTransactions: [],
   goals: [],
+  reserves: [],
   currentMonth: today.getMonth(),
   currentYear:  today.getFullYear(),
 };
@@ -439,6 +467,27 @@ function reducer(state, action) {
     case "UPD_GOAL":    return { ...state, goals: state.goals.map(x => x.id===action.p.id ? action.p : x) };
     case "DEL_GOAL":    return { ...state, goals: state.goals.filter(x => x.id!==action.id) };
     case "SET_MONTH":   return { ...state, currentMonth:action.month, currentYear:action.year };
+    // Renda: registrar valor real do mês
+    case "SET_INCOME_ACTUAL": {
+      const income = state.income.map(x => x.id===action.id
+        ? { ...x, actualAmounts: { ...(x.actualAmounts||{}), [action.monthKey]: action.amount } } : x);
+      return { ...state, income };
+    }
+    // Fixos: registrar valor real do mês
+    case "SET_FIXED_ACTUAL": {
+      const fixedExpenses = state.fixedExpenses.map(x => x.id===action.id
+        ? { ...x, actualAmounts: { ...(x.actualAmounts||{}), [action.monthKey]: action.amount } } : x);
+      return { ...state, fixedExpenses };
+    }
+    // Reservas de emergência
+    case "ADD_RESERVE":  return { ...state, reserves:[...(state.reserves||[]), {...action.p, id:uid(), contributions:{}}] };
+    case "UPD_RESERVE":  return { ...state, reserves:(state.reserves||[]).map(x => x.id===action.p.id ? action.p : x) };
+    case "DEL_RESERVE":  return { ...state, reserves:(state.reserves||[]).filter(x => x.id!==action.id) };
+    case "SET_RESERVE_CONTRIB": {
+      const reserves = (state.reserves||[]).map(x => x.id===action.id
+        ? { ...x, contributions: { ...(x.contributions||{}), [action.monthKey]: action.amount } } : x);
+      return { ...state, reserves };
+    }
     default: return state;
   }
 }
@@ -543,8 +592,8 @@ function Dashboard({ state, dispatch }) {
   const { income, fixedExpenses, variableCategories, transactions, creditCards, cardTransactions, currentMonth, currentYear } = state;
 
   const stats = useMemo(() => {
-    const totalIncome = income.reduce((s,x) => s + x.amount, 0);
-    const totalFixed  = fixedExpenses.reduce((s,x) => s + x.amount, 0);
+    const totalIncome = income.reduce((s,x) => s + effectiveIncome(x, currentMonth, currentYear), 0);
+    const totalFixed  = fixedExpenses.reduce((s,x) => s + effectiveFixed(x, currentMonth, currentYear), 0);
     const monthTxs    = transactions.filter(t => isSameMonth(t.date, currentMonth, currentYear));
     const totalVar    = monthTxs.reduce((s,t) => s + t.amount, 0);
     const monthCards  = cardTransactions.filter(t => isSameMonth(t.date, currentMonth, currentYear));
@@ -755,79 +804,209 @@ function Dashboard({ state, dispatch }) {
 }
 
 // ─────────────────────────────────────────────
-//  RECEITAS
+//  RECEITAS (com suporte a renda variável)
 // ─────────────────────────────────────────────
 function Income({ state, dispatch }) {
-  const [modal, setModal] = useState(false);
-  const [edit, setEdit] = useState(null);
-  const [form, setForm] = useState({ name:"", amount:"", recurring:true });
+  const { income, currentMonth, currentYear } = state;
+  const [modal, setModal]           = useState(false);
+  const [actualModal, setActualModal] = useState(null); // item para registrar real
+  const [edit, setEdit]             = useState(null);
+  const [form, setForm]             = useState({ name:"", amount:"", recurring:true, isVariable:false });
+  const [actualVal, setActualVal]   = useState("");
 
-  const total = state.income.reduce((s,x) => s+x.amount, 0);
+  const mk = monthKey(currentMonth, currentYear);
+  const totalExpected = income.reduce((s,x) => s + x.amount, 0);
+  const totalActual   = income.reduce((s,x) => s + effectiveIncome(x, currentMonth, currentYear), 0);
+  const hasActual     = income.some(x => x.actualAmounts?.[mk] != null);
 
-  function openAdd() { setForm({name:"",amount:"",recurring:true}); setEdit(null); setModal(true); }
-  function openEdit(item) { setForm({name:item.name,amount:String(item.amount),recurring:item.recurring}); setEdit(item); setModal(true); }
+  function openAdd() { setForm({name:"",amount:"",recurring:true,isVariable:false}); setEdit(null); setModal(true); }
+  function openEdit(item) {
+    setForm({name:item.name,amount:String(item.amount),recurring:item.recurring,isVariable:!!item.isVariable});
+    setEdit(item); setModal(true);
+  }
   function save() {
-    if (!form.name.trim() || !form.amount) return;
-    const p = { name:form.name.trim(), amount:parseFloat(form.amount), recurring:form.recurring };
-    if (edit) dispatch({ type:"UPD_INCOME", p:{...edit,...p} });
-    else dispatch({ type:"ADD_INCOME", p });
+    if (!form.name.trim()||!form.amount) return;
+    const p = { name:form.name.trim(), amount:parseFloat(form.amount), recurring:form.recurring, isVariable:form.isVariable, actualAmounts: edit?.actualAmounts||{} };
+    if (edit) dispatch({type:"UPD_INCOME", p:{...edit,...p}});
+    else dispatch({type:"ADD_INCOME", p});
     setModal(false);
+  }
+  function openActual(item) { setActualVal(String(item.actualAmounts?.[mk] ?? "")); setActualModal(item); }
+  function saveActual() {
+    if (!actualVal||isNaN(parseFloat(actualVal))) return;
+    dispatch({type:"SET_INCOME_ACTUAL", id:actualModal.id, monthKey:mk, amount:parseFloat(actualVal)});
+    setActualModal(null);
   }
 
   return (
     <div className="page fade-in">
       <div className="page-header">
-        <h1>Receitas</h1>
-      </div>
-
-      <div className="card mb-4" style={{background:"var(--success2)",border:"1px solid rgba(61,213,152,0.2)"}}>
-        <div className="text-muted text-sm">Renda total mensal</div>
-        <div className="big-num color-success">{fmt(total)}</div>
-      </div>
-
-      <div className="card">
-        <div className="section-head">
-          <h3>Fontes de Renda</h3>
+        <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
+          <div>
+            <h1>Receitas</h1>
+            <MonthNav month={currentMonth} year={currentYear}
+              onChange={(m,y)=>dispatch({type:"SET_MONTH",month:m,year:y})} />
+          </div>
           <button className="btn btn-primary btn-sm" onClick={openAdd}><Plus size={14}/>Adicionar</button>
         </div>
-        {state.income.length === 0 ? <Empty icon="💰" text="Nenhuma fonte de renda cadastrada" /> : (
-          state.income.map(item => (
-            <div key={item.id} className="list-item">
-              <div className="list-item-left">
-                <div className="cat-ico" style={{background:"var(--success2)"}}>
-                  <DollarSign size={20} color="var(--success)" />
-                </div>
-                <div>
-                  <div className="text-sm font-semi">{item.name}</div>
-                  <span className="badge badge-success" style={{fontSize:10}}>{item.recurring?"Recorrente":"Eventual"}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-2" style={{flexShrink:0}}>
-                <div className="font-bold color-success mono" style={{fontSize:13}}>{fmt(item.amount)}</div>
-                <button className="btn btn-ghost btn-icon btn-sm" onClick={()=>openEdit(item)}><Edit2 size={13}/></button>
-                <button className="btn btn-danger btn-icon btn-sm" onClick={()=>dispatch({type:"DEL_INCOME",id:item.id})}><Trash2 size={13}/></button>
+      </div>
+
+      {/* CARTÃO RESUMO */}
+      <div className="card mb-4" style={{background:"rgba(61,213,152,0.08)",border:"1px solid rgba(61,213,152,0.2)"}}>
+        <div className="flex justify-between items-start">
+          <div>
+            <div className="text-muted text-sm mb-1">{hasActual?"Recebido em":"Esperado em"} {MONTHS[currentMonth]}</div>
+            <div className="big-num color-success">{fmt(totalActual)}</div>
+          </div>
+          {totalActual !== totalExpected && (
+            <div style={{textAlign:"right"}}>
+              <div className="text-xs color-muted">Esperado</div>
+              <div style={{fontSize:14,fontWeight:700,color:"var(--text2)",fontFamily:"JetBrains Mono"}}>{fmt(totalExpected)}</div>
+              <div style={{fontSize:11,marginTop:2,color:totalActual>totalExpected?"var(--success)":"var(--danger)",fontWeight:600}}>
+                {totalActual>totalExpected?"+":""}{fmt(totalActual-totalExpected)}
               </div>
             </div>
-          ))
+          )}
+        </div>
+        {hasActual && (
+          <div style={{marginTop:10,fontSize:12,color:"var(--text3)"}}>
+            ✅ Valor real registrado para este mês
+          </div>
         )}
       </div>
 
+      {/* LISTA */}
+      <div className="card">
+        <div className="section-head">
+          <h3>Fontes de Renda</h3>
+        </div>
+        {income.length === 0 ? <Empty icon="💰" text="Nenhuma fonte de renda cadastrada" /> : (
+          income.map(item => {
+            const effective = effectiveIncome(item, currentMonth, currentYear);
+            const hasReal   = item.actualAmounts?.[mk] != null;
+            return (
+              <div key={item.id} className="list-item" style={{flexWrap:"wrap",gap:8}}>
+                <div className="list-item-left">
+                  <div className="cat-ico" style={{background:"var(--success2)"}}>
+                    <DollarSign size={20} color="var(--success)" />
+                  </div>
+                  <div style={{minWidth:0}}>
+                    <div className="text-sm font-semi truncate">{item.name}</div>
+                    <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:3}}>
+                      <span className="badge badge-success" style={{fontSize:10}}>{item.recurring?"Recorrente":"Eventual"}</span>
+                      {item.isVariable && (
+                        <span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:20,background:"rgba(255,181,71,0.15)",color:"var(--warning)"}}>
+                          Variável
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                  {item.isVariable && (
+                    <div style={{textAlign:"right",marginRight:4}}>
+                      {hasReal ? (
+                        <>
+                          <div style={{fontSize:13,fontWeight:800,color:"var(--success)",fontFamily:"JetBrains Mono"}}>{fmt(effective)}</div>
+                          <div style={{fontSize:10,color:"var(--text3)"}}>real · est. {fmt(item.amount)}</div>
+                        </>
+                      ) : (
+                        <>
+                          <div style={{fontSize:13,fontWeight:800,color:"var(--text2)",fontFamily:"JetBrains Mono"}}>{fmt(item.amount)}</div>
+                          <div style={{fontSize:10,color:"var(--warning)"}}>estimado</div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {!item.isVariable && (
+                    <div className="font-bold color-success mono" style={{fontSize:13}}>{fmt(item.amount)}</div>
+                  )}
+                  {item.isVariable && (
+                    <button className="btn btn-success btn-sm" style={{padding:"5px 10px",fontSize:11}} onClick={()=>openActual(item)}>
+                      {hasReal?"✏️":"📝"} Real
+                    </button>
+                  )}
+                  <button className="btn btn-ghost btn-icon btn-sm" onClick={()=>openEdit(item)}><Edit2 size={13}/></button>
+                  <button className="btn btn-danger btn-icon btn-sm" onClick={()=>dispatch({type:"DEL_INCOME",id:item.id})}><Trash2 size={13}/></button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* INFO SOBRE RENDA VARIÁVEL */}
+      {income.some(x=>x.isVariable) && (
+        <div className="alert alert-info mt-3">
+          <Bell size={16}/>
+          <span>Fontes variáveis: registre o valor real recebido cada mês. O dashboard sempre usa o valor mais preciso disponível.</span>
+        </div>
+      )}
+
+      {/* MODAL CADASTRO */}
       {modal && (
         <Modal title={edit?"Editar Receita":"Nova Receita"} onClose={()=>setModal(false)}>
           <div className="form-group"><label className="form-label">Nome</label>
             <input placeholder="Ex: Salário, Freelance..." value={form.name} onChange={e=>setForm({...form,name:e.target.value})} />
           </div>
-          <div className="form-group"><label className="form-label">Valor (R$)</label>
+          <div className="form-group"><label className="form-label">Valor esperado (R$)</label>
             <input type="number" placeholder="0,00" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} />
+            <div style={{fontSize:11,color:"var(--text3)",marginTop:4}}>Para renda variável, use o valor médio ou mínimo que você espera receber</div>
           </div>
           <div className="form-group">
-            <label className="form-label">Tipo</label>
+            <label className="form-label">Tipo de renda</label>
             <select value={form.recurring?"sim":"nao"} onChange={e=>setForm({...form,recurring:e.target.value==="sim"})}>
               <option value="sim">Recorrente (todo mês)</option>
               <option value="nao">Eventual (uma vez)</option>
             </select>
           </div>
-          <button className="btn btn-primary btn-full mt-3" onClick={save}>💾 Salvar</button>
+          {/* TOGGLE VARIÁVEL */}
+          <div style={{padding:"12px 14px",borderRadius:10,background:"var(--s2)",border:"1px solid var(--border)",marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:700,color:"var(--text)"}}>Renda variável</div>
+                <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>O valor muda todo mês? (comissões, freelances, horas extras...)</div>
+              </div>
+              <button onClick={()=>setForm({...form,isVariable:!form.isVariable})}
+                style={{width:44,height:24,borderRadius:12,border:"none",cursor:"pointer",
+                  background:form.isVariable?"var(--success)":"var(--s3)",
+                  position:"relative",transition:"background 0.2s",flexShrink:0}}>
+                <div style={{position:"absolute",top:2,left:form.isVariable?22:2,width:20,height:20,
+                  borderRadius:10,background:"white",transition:"left 0.2s"}}/>
+              </button>
+            </div>
+          </div>
+          <button className="btn btn-primary btn-full mt-2" onClick={save}>💾 Salvar</button>
+          {edit && <button className="btn btn-danger btn-full mt-2" onClick={()=>{dispatch({type:"DEL_INCOME",id:edit.id});setModal(false);}}>🗑️ Excluir</button>}
+        </Modal>
+      )}
+
+      {/* MODAL VALOR REAL */}
+      {actualModal && (
+        <Modal title={`Valor real — ${MONTHS[currentMonth]}`} onClose={()=>setActualModal(null)}>
+          <div style={{textAlign:"center",padding:"8px 0 16px"}}>
+            <div style={{fontSize:32,marginBottom:6}}>💰</div>
+            <div style={{fontSize:16,fontWeight:800}}>{actualModal.name}</div>
+            <div style={{fontSize:12,color:"var(--text3)",marginTop:4}}>Valor esperado: {fmt(actualModal.amount)}</div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Quanto você recebeu em {MONTHS[currentMonth]}?</label>
+            <input type="number" placeholder="0,00" value={actualVal} onChange={e=>setActualVal(e.target.value)}
+              autoFocus style={{fontSize:20,fontWeight:700,textAlign:"center",padding:"14px"}} />
+          </div>
+          {actualVal && !isNaN(parseFloat(actualVal)) && (
+            <div className={`alert alert-${parseFloat(actualVal)>=actualModal.amount?"success":"warning"} mb-3`}>
+              {parseFloat(actualVal)>=actualModal.amount
+                ? <CheckCircle2 size={16}/>
+                : <AlertTriangle size={16}/>}
+              <span>
+                {parseFloat(actualVal)>=actualModal.amount
+                  ? `${fmt(parseFloat(actualVal)-actualModal.amount)} acima do esperado 🎉`
+                  : `${fmt(actualModal.amount-parseFloat(actualVal))} abaixo do esperado`}
+              </span>
+            </div>
+          )}
+          <button className="btn btn-primary btn-full" onClick={saveActual}>✅ Confirmar</button>
         </Modal>
       )}
     </div>
@@ -844,9 +1023,9 @@ const PRIORITY_CONFIG = {
   optional:   { label:"Opcional",   desc:"Conforto e lazer — primeira linha de corte",            color:"#7C83F5", bg:"rgba(124,131,245,0.08)", border:"rgba(124,131,245,0.25)", dot:"🔵", icon:"✨", tip:"Em caso de aperto, esses são os primeiros a revisar." },
 };
 
-function PriorityTierCard({ tier, items, totalIncome, onEdit, onDelete, onAdd }) {
+function PriorityTierCard({ tier, items, totalIncome, onEdit, onDelete, onAdd, onRecordActual, onGetEffective }) {
   const cfg = PRIORITY_CONFIG[tier];
-  const total = items.reduce((s, x) => s + x.amount, 0);
+  const total = items.reduce((s, x) => s + (onGetEffective ? onGetEffective(x) : x.amount), 0);
   const pct = totalIncome > 0 ? (total / totalIncome) * 100 : 0;
   const [expanded, setExpanded] = useState(true);
   if (items.length === 0) return null;
@@ -879,7 +1058,17 @@ function PriorityTierCard({ tier, items, totalIncome, onEdit, onDelete, onAdd })
                 <div style={{ fontSize:14, fontWeight:600, color:"var(--text)" }} className="truncate">{item.name}</div>
                 {item.dueDay && <div style={{ fontSize:11, color:"var(--text3)" }}>Vence dia {item.dueDay}</div>}
               </div>
-              <div style={{ fontFamily:"JetBrains Mono", fontWeight:700, fontSize:14, color:cfg.color, flexShrink:0 }}>{fmt(item.amount)}</div>
+              <div style={{textAlign:"right",flexShrink:0}}>
+                <div style={{ fontFamily:"JetBrains Mono", fontWeight:700, fontSize:14, color:cfg.color }}>{fmt(onGetEffective ? onGetEffective(item) : item.amount)}</div>
+                {item.isVariable && onGetEffective && onGetEffective(item)!==item.amount && (
+                  <div style={{fontSize:10,color:"var(--text3)"}}>est. {fmt(item.amount)}</div>
+                )}
+              </div>
+              {item.isVariable && onRecordActual && (
+                <button className="btn btn-ghost btn-sm" style={{padding:"4px 8px",fontSize:11}} onClick={()=>onRecordActual(item)}>
+                  📝
+                </button>
+              )}
               <button className="btn btn-ghost btn-icon btn-sm" onClick={() => onEdit(item)}><Edit2 size={12}/></button>
               <button className="btn btn-danger btn-icon btn-sm" onClick={() => onDelete(item.id)}><Trash2 size={12}/></button>
             </div>
@@ -894,12 +1083,13 @@ function PriorityTierCard({ tier, items, totalIncome, onEdit, onDelete, onAdd })
 }
 
 function FixedExpenses({ state, dispatch }) {
+  const { currentMonth, currentYear } = state;
   const [modal, setModal] = useState(false);
   const [edit, setEdit]   = useState(null);
-  const [form, setForm]   = useState({ name:"", amount:"", dueDay:"", priority:"essential" });
+  const [form, setForm]   = useState({ name:"", amount:"", dueDay:"", priority:"essential", isVariable:false });
 
-  const totalIncome = state.income.reduce((s,x)=>s+x.amount,0);
-  const total       = state.fixedExpenses.reduce((s,x)=>s+x.amount,0);
+  const totalIncome = state.income.reduce((s,x)=>s+effectiveIncome(x,currentMonth,currentYear),0);
+  const total       = state.fixedExpenses.reduce((s,x)=>s+effectiveFixed(x,currentMonth,currentYear),0);
 
   const byPriority = useMemo(() => ({
     essential: state.fixedExpenses.filter(x=>(x.priority||"essential")==="essential"),
@@ -907,21 +1097,33 @@ function FixedExpenses({ state, dispatch }) {
     optional:   state.fixedExpenses.filter(x=>x.priority==="optional"),
   }), [state.fixedExpenses]);
 
-  const essentialTotal = byPriority.essential.reduce((s,x)=>s+x.amount,0);
-  const importantTotal  = byPriority.important.reduce((s,x)=>s+x.amount,0);
-  const optionalTotal   = byPriority.optional.reduce((s,x)=>s+x.amount,0);
+  const essentialTotal = byPriority.essential.reduce((s,x)=>s+getEff(x),0);
+  const importantTotal  = byPriority.important.reduce((s,x)=>s+getEff(x),0);
+  const optionalTotal   = byPriority.optional.reduce((s,x)=>s+getEff(x),0);
   const savingsVal      = Math.max(0, totalIncome - total);
   const savingsPct      = totalIncome > 0 ? (savingsVal/totalIncome)*100 : 0;
   const pct             = totalIncome > 0 ? (total/totalIncome)*100 : 0;
 
-  function openAdd(priority = "essential") { setForm({ name:"", amount:"", dueDay:"", priority }); setEdit(null); setModal(true); }
-  function openEdit(item) { setForm({ name:item.name, amount:String(item.amount), dueDay:String(item.dueDay||""), priority:item.priority||"essential" }); setEdit(item); setModal(true); }
+  function openAdd(priority = "essential") { setForm({ name:"", amount:"", dueDay:"", priority, isVariable:false }); setEdit(null); setModal(true); }
+  function openEdit(item) { setForm({ name:item.name, amount:String(item.amount), dueDay:String(item.dueDay||""), priority:item.priority||"essential", isVariable:!!item.isVariable }); setEdit(item); setModal(true); }
+  const mk = monthKey(currentMonth, currentYear);
+  const [actualModal, setActualModal] = useState(null);
+  const [actualVal, setActualVal]     = useState("");
+
+  function getEff(item) { return effectiveFixed(item, currentMonth, currentYear); }
+
   function save() {
     if (!form.name.trim()||!form.amount) return;
-    const p = { name:form.name.trim(), amount:parseFloat(form.amount), dueDay:parseInt(form.dueDay)||null, priority:form.priority };
+    const p = { name:form.name.trim(), amount:parseFloat(form.amount), dueDay:parseInt(form.dueDay)||null, priority:form.priority, isVariable:form.isVariable||false, actualAmounts: edit?.actualAmounts||{} };
     if (edit) dispatch({type:"UPD_FIXED",p:{...edit,...p}});
     else      dispatch({type:"ADD_FIXED",p});
     setModal(false);
+  }
+  function openActualFixed(item) { setActualVal(String(item.actualAmounts?.[mk]??"")); setActualModal(item); }
+  function saveActualFixed() {
+    if (!actualVal||isNaN(parseFloat(actualVal))) return;
+    dispatch({type:"SET_FIXED_ACTUAL",id:actualModal.id,monthKey:mk,amount:parseFloat(actualVal)});
+    setActualModal(null);
   }
 
   return (
@@ -1000,9 +1202,9 @@ function FixedExpenses({ state, dispatch }) {
         </div>
       ) : (
         <>
-          <PriorityTierCard tier="essential" items={byPriority.essential} totalIncome={totalIncome} onEdit={openEdit} onDelete={id=>dispatch({type:"DEL_FIXED",id})} onAdd={openAdd}/>
-          <PriorityTierCard tier="important"  items={byPriority.important}  totalIncome={totalIncome} onEdit={openEdit} onDelete={id=>dispatch({type:"DEL_FIXED",id})} onAdd={openAdd}/>
-          <PriorityTierCard tier="optional"  items={byPriority.optional}   totalIncome={totalIncome} onEdit={openEdit} onDelete={id=>dispatch({type:"DEL_FIXED",id})} onAdd={openAdd}/>
+          <PriorityTierCard tier="essential" items={byPriority.essential} totalIncome={totalIncome} onEdit={openEdit} onDelete={id=>dispatch({type:"DEL_FIXED",id})} onAdd={openAdd} onRecordActual={openActualFixed} onGetEffective={getEff}/>
+          <PriorityTierCard tier="important"  items={byPriority.important}  totalIncome={totalIncome} onEdit={openEdit} onDelete={id=>dispatch({type:"DEL_FIXED",id})} onAdd={openAdd} onRecordActual={openActualFixed} onGetEffective={getEff}/>
+          <PriorityTierCard tier="optional"  items={byPriority.optional}   totalIncome={totalIncome} onEdit={openEdit} onDelete={id=>dispatch({type:"DEL_FIXED",id})} onAdd={openAdd} onRecordActual={openActualFixed} onGetEffective={getEff}/>
           <button className="btn btn-ghost btn-full mt-2" onClick={()=>openAdd("essential")}><Plus size={14}/>Adicionar nova despesa</button>
         </>
       )}
@@ -1033,8 +1235,54 @@ function FixedExpenses({ state, dispatch }) {
               <input type="number" min="1" max="31" placeholder="Ex: 10" value={form.dueDay} onChange={e=>setForm({...form,dueDay:e.target.value})}/>
             </div>
           </div>
-          <button className="btn btn-primary btn-full mt-3" onClick={save}>💾 Salvar</button>
+          {/* Toggle variável */}
+          <div style={{padding:"12px 14px",borderRadius:10,background:"var(--s2)",border:"1px solid var(--border)",marginBottom:14}}>
+            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div>
+                <div style={{fontSize:13,fontWeight:700,color:"var(--text)"}}>Valor variável</div>
+                <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>O valor muda todo mês? (luz, água, gás...)</div>
+              </div>
+              <button onClick={()=>setForm({...form,isVariable:!form.isVariable})}
+                style={{width:44,height:24,borderRadius:12,border:"none",cursor:"pointer",
+                  background:form.isVariable?"var(--warning)":"var(--s3)",
+                  position:"relative",transition:"background 0.2s",flexShrink:0}}>
+                <div style={{position:"absolute",top:2,left:form.isVariable?22:2,width:20,height:20,
+                  borderRadius:10,background:"white",transition:"left 0.2s"}}/>
+              </button>
+            </div>
+            {form.isVariable && <div style={{fontSize:11,color:"var(--warning)",marginTop:8}}>⚡ O valor acima é a estimativa. Você registrará o real a cada mês.</div>}
+          </div>
+          <button className="btn btn-primary btn-full mt-2" onClick={save}>💾 Salvar</button>
           {edit && <button className="btn btn-danger btn-full mt-2" onClick={()=>{dispatch({type:"DEL_FIXED",id:edit.id});setModal(false);}}>🗑️ Excluir</button>}
+        </Modal>
+      )}
+
+      {/* MODAL: REGISTRAR VALOR REAL DO MÊS */}
+      {actualModal && (
+        <Modal title={`Valor real — ${MONTHS[currentMonth]}`} onClose={()=>setActualModal(null)}>
+          <div style={{textAlign:"center",padding:"8px 0 16px"}}>
+            <div style={{fontSize:32,marginBottom:6}}>⚡</div>
+            <div style={{fontSize:16,fontWeight:800}}>{actualModal.name}</div>
+            <div style={{fontSize:12,color:"var(--text3)",marginTop:4}}>Estimativa: {fmt(actualModal.amount)}</div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Quanto custou em {MONTHS[currentMonth]}?</label>
+            <input type="number" placeholder="0,00" value={actualVal} onChange={e=>setActualVal(e.target.value)}
+              autoFocus style={{fontSize:20,fontWeight:700,textAlign:"center",padding:"14px"}} />
+          </div>
+          {actualVal && !isNaN(parseFloat(actualVal)) && (
+            <div className={`alert alert-${parseFloat(actualVal)<=actualModal.amount?"success":"warning"} mb-3`}>
+              {parseFloat(actualVal)<=actualModal.amount
+                ? <CheckCircle2 size={16}/>
+                : <AlertTriangle size={16}/>}
+              <span>
+                {parseFloat(actualVal)<=actualModal.amount
+                  ? `${fmt(actualModal.amount-parseFloat(actualVal))} abaixo da estimativa ✅`
+                  : `${fmt(parseFloat(actualVal)-actualModal.amount)} acima da estimativa ⚠️`}
+              </span>
+            </div>
+          )}
+          <button className="btn btn-primary btn-full" onClick={saveActualFixed}>✅ Confirmar</button>
         </Modal>
       )}
     </div>
@@ -1052,7 +1300,7 @@ function VariableExpenses({ state, dispatch }) {
   const [editCat, setEditCat] = useState(null);
   const [selectedCat, setSelectedCat] = useState(null);
   const [catForm, setCatForm] = useState({ name:"", limit:"", color:"#3DD598", priority:"important", icon:"🛒" });
-  const [txForm, setTxForm] = useState({ categoryId:"", amount:"", description:"", date:"" });
+  const [txForm, setTxForm] = useState({ categoryId:"", amount:"", description:"", date:"", paymentMethod:"pix", cardId:"" });
   const [search, setSearch] = useState("");
 
   const catStats = useMemo(() => {
@@ -1082,10 +1330,28 @@ function VariableExpenses({ state, dispatch }) {
     else dispatch({type:"ADD_CAT",p});
     setModalCat(false);
   }
-  function openAddTx(catId) { setTxForm({ categoryId:catId||"", amount:"", description:"", date:new Date().toISOString().slice(0,10) }); setModalTx(true); }
+  function openAddTx(catId) { setTxForm({ categoryId:catId||"", amount:"", description:"", date:new Date().toISOString().slice(0,10), paymentMethod:"pix", cardId:"" }); setModalTx(true); }
   function saveTx() {
     if (!txForm.categoryId||!txForm.amount) return;
-    dispatch({type:"ADD_TX", p:{ categoryId:txForm.categoryId, amount:parseFloat(txForm.amount), description:txForm.description, date: new Date(txForm.date+"T12:00:00").toISOString() }});
+    dispatch({type:"ADD_TX", p:{
+      categoryId:txForm.categoryId,
+      amount:parseFloat(txForm.amount),
+      description:txForm.description,
+      date: new Date(txForm.date+"T12:00:00").toISOString(),
+      paymentMethod: txForm.paymentMethod||"pix",
+      cardId: txForm.paymentMethod==="credit" ? txForm.cardId : null,
+    }});
+    // Se pagou no crédito, também lança na fatura do cartão
+    if (txForm.paymentMethod==="credit" && txForm.cardId) {
+      dispatch({type:"ADD_CARD_TX", p:{
+        cardId:txForm.cardId,
+        amount:parseFloat(txForm.amount),
+        description:txForm.description||variableCategories.find(c=>c.id===txForm.categoryId)?.name,
+        date: new Date(txForm.date+"T12:00:00").toISOString(),
+        installments:1, installmentNum:1,
+        fromVariable:true,
+      }});
+    }
     setModalTx(false);
   }
 
@@ -1208,7 +1474,13 @@ function VariableExpenses({ state, dispatch }) {
                     </div>
                     <div className="truncate">
                       <div className="text-sm font-semi truncate">{tx.description||cat?.name||"Gasto"}</div>
-                      <div className="text-xs color-muted">{fmtDate(tx.date)} · {cat?.name}</div>
+                      <div className="text-xs color-muted" style={{display:"flex",gap:5,alignItems:"center",flexWrap:"wrap"}}>
+                        <span>{fmtDate(tx.date)} · {cat?.name}</span>
+                        {tx.paymentMethod && (() => {
+                          const pm = PAYMENT_METHODS.find(p=>p.id===tx.paymentMethod);
+                          return pm ? <span style={{padding:"1px 6px",borderRadius:20,background:`${pm.color}22`,color:pm.color,fontSize:10,fontWeight:700}}>{pm.icon} {pm.label}</span> : null;
+                        })()}
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
@@ -1278,7 +1550,33 @@ function VariableExpenses({ state, dispatch }) {
           <div className="form-group"><label className="form-label">Descrição (opcional)</label>
             <input placeholder="Ex: Compra no Pão de Açúcar..." value={txForm.description} onChange={e=>setTxForm({...txForm,description:e.target.value})} />
           </div>
-          <button className="btn btn-primary btn-full mt-3" onClick={saveTx}>💾 Registrar</button>
+          <div className="form-group">
+            <label className="form-label">Meio de pagamento</label>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6}}>
+              {PAYMENT_METHODS.map(pm=>(
+                <button key={pm.id} onClick={()=>setTxForm({...txForm,paymentMethod:pm.id,cardId:""})}
+                  style={{padding:"8px 4px",borderRadius:10,border:`2px solid ${txForm.paymentMethod===pm.id?pm.color:"transparent"}`,
+                    background:txForm.paymentMethod===pm.id?`${pm.color}18`:"var(--s2)",
+                    cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,fontFamily:"Outfit,sans-serif"}}>
+                  <span style={{fontSize:18}}>{pm.icon}</span>
+                  <span style={{fontSize:10,fontWeight:700,color:txForm.paymentMethod===pm.id?pm.color:"var(--text3)"}}>{pm.label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          {txForm.paymentMethod==="credit" && state.creditCards.length>0 && (
+            <div className="form-group">
+              <label className="form-label">Qual cartão?</label>
+              <select value={txForm.cardId} onChange={e=>setTxForm({...txForm,cardId:e.target.value})}>
+                <option value="">Selecione o cartão...</option>
+                {state.creditCards.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+          )}
+          {txForm.paymentMethod==="credit" && state.creditCards.length===0 && (
+            <div className="alert alert-info mb-3"><Zap size={16}/><span>Cadastre um cartão na aba Cartões para vincular compras no crédito.</span></div>
+          )}
+          <button className="btn btn-primary btn-full mt-2" onClick={saveTx}>💾 Registrar</button>
         </Modal>
       )}
     </div>
@@ -1588,6 +1886,280 @@ function Analytics({ state }) {
   );
 }
 
+
+// ─────────────────────────────────────────────
+//  RESERVA DE EMERGÊNCIA
+// ─────────────────────────────────────────────
+function EmergencyReserve({ state, dispatch }) {
+  const { reserves, currentMonth, currentYear, income, fixedExpenses } = state;
+  const [modal, setModal]       = useState(false);
+  const [contribModal, setContribModal] = useState(null);
+  const [edit, setEdit]         = useState(null);
+  const [form, setForm]         = useState({ name:"Reserva de Emergência", monthlyTarget:"", finalTarget:"", icon:"🛡️" });
+  const [contribVal, setContribVal] = useState("");
+
+  const mk = monthKey(currentMonth, currentYear);
+  const totalIncome = income.reduce((s,x)=>s+effectiveIncome(x,currentMonth,currentYear),0);
+  const totalFixed  = fixedExpenses.reduce((s,x)=>s+effectiveFixed(x,currentMonth,currentYear),0);
+  // Meta sugerida: 6x despesas mensais
+  const suggestedTarget = (totalIncome - totalFixed) * 6 || totalIncome * 6;
+
+  // Calcula déficit acumulado para cada reserva
+  function getReserveStats(r) {
+    const contribs = r.contributions || {};
+    const totalSaved = Object.values(contribs).reduce((s,v)=>s+v,0);
+    const pct = r.finalTarget > 0 ? (totalSaved / r.finalTarget) * 100 : 0;
+
+    // Calcula meses com déficit — percorre últimos 12 meses
+    let deficit = 0;
+    const now = new Date();
+    for (let i=0; i<12; i++) {
+      let m = now.getMonth() - i; let y = now.getFullYear();
+      if (m < 0) { m += 12; y--; }
+      const k = monthKey(m, y);
+      const contributed = contribs[k] || 0;
+      if (contributed < r.monthlyTarget) {
+        deficit += r.monthlyTarget - contributed;
+      }
+    }
+
+    const thisMonth   = contribs[mk] || 0;
+    const thisMonthOk = thisMonth >= r.monthlyTarget;
+    const prevMonths  = Object.entries(contribs)
+      .filter(([k])=>k<mk)
+      .sort(([a],[b])=>b.localeCompare(a))
+      .slice(0,6);
+
+    return { totalSaved, pct, deficit, thisMonth, thisMonthOk, prevMonths };
+  }
+
+  function openAdd() { setForm({name:"Reserva de Emergência",monthlyTarget:"",finalTarget:"",icon:"🛡️"}); setEdit(null); setModal(true); }
+  function openEdit(r) { setForm({name:r.name,monthlyTarget:String(r.monthlyTarget),finalTarget:String(r.finalTarget),icon:r.icon||"🛡️"}); setEdit(r); setModal(true); }
+  function save() {
+    if (!form.name.trim()||!form.monthlyTarget||!form.finalTarget) return;
+    const p = { name:form.name.trim(), monthlyTarget:parseFloat(form.monthlyTarget), finalTarget:parseFloat(form.finalTarget), icon:form.icon };
+    if (edit) dispatch({type:"UPD_RESERVE",p:{...edit,...p}});
+    else      dispatch({type:"ADD_RESERVE",p});
+    setModal(false);
+  }
+  function saveContrib() {
+    if (!contribVal||isNaN(parseFloat(contribVal))) return;
+    dispatch({type:"SET_RESERVE_CONTRIB",id:contribModal.id,monthKey:mk,amount:parseFloat(contribVal)});
+    setContribModal(null); setContribVal("");
+  }
+
+  const RESERVE_ICONS = ["🛡️","💰","🏦","🏠","🚗","✈️","🎓","💊","🔒","⚡"];
+
+  return (
+    <div className="page fade-in">
+      <div className="page-header" style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
+        <div>
+          <h1>Reserva</h1>
+          <p className="text-muted text-sm mt-1">Poupança obrigatória mensal</p>
+        </div>
+        <button className="btn btn-primary btn-sm" onClick={openAdd}><Plus size={14}/>Criar Reserva</button>
+      </div>
+
+      {/* O QUE É */}
+      {reserves.length === 0 && (
+        <div className="card mb-4" style={{background:"rgba(61,213,152,0.06)",border:"1px solid rgba(61,213,152,0.2)",textAlign:"center",padding:"32px 20px"}}>
+          <div style={{fontSize:48,marginBottom:12}}>🛡️</div>
+          <h3 style={{marginBottom:8}}>Crie sua reserva de emergência</h3>
+          <p className="text-muted text-sm" style={{marginBottom:16,lineHeight:1.6,maxWidth:300,margin:"0 auto 16px"}}>
+            Defina quanto guardar por mês. Se não conseguir, o valor faltante acumula no mês seguinte automaticamente.
+          </p>
+          {totalIncome > 0 && (
+            <div style={{padding:"10px 16px",borderRadius:10,background:"rgba(255,255,255,0.05)",display:"inline-block",marginBottom:16}}>
+              <div style={{fontSize:12,color:"var(--text3)"}}>Meta sugerida para você</div>
+              <div style={{fontSize:18,fontWeight:800,color:"var(--success)",fontFamily:"JetBrains Mono"}}>{fmt(totalIncome*0.2)}/mês</div>
+              <div style={{fontSize:11,color:"var(--text3)"}}>20% da renda · Meta final: {fmt(suggestedTarget)}</div>
+            </div>
+          )}
+          <br/>
+          <button className="btn btn-primary" onClick={openAdd}><Plus size={14}/>Criar minha reserva</button>
+        </div>
+      )}
+
+      {/* LISTA DE RESERVAS */}
+      {(reserves||[]).map(r => {
+        const stats = getReserveStats(r);
+        const extraThisMonth = stats.deficit > 0 ? r.monthlyTarget + stats.deficit : r.monthlyTarget;
+        return (
+          <div key={r.id} className="card mb-4" style={{border:`1px solid ${stats.thisMonthOk?"rgba(61,213,152,0.3)":"rgba(255,107,107,0.2)"}`}}>
+            {/* HEADER */}
+            <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:16}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <div style={{fontSize:32}}>{r.icon||"🛡️"}</div>
+                <div>
+                  <div style={{fontWeight:800,fontSize:16}}>{r.name}</div>
+                  <div style={{fontSize:12,color:"var(--text3)",marginTop:2}}>Meta: {fmt(r.monthlyTarget)}/mês · Total: {fmt(r.finalTarget)}</div>
+                </div>
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                <button className="btn btn-ghost btn-icon btn-sm" onClick={()=>openEdit(r)}><Edit2 size={13}/></button>
+                <button className="btn btn-danger btn-icon btn-sm" onClick={()=>dispatch({type:"DEL_RESERVE",id:r.id})}><Trash2 size={13}/></button>
+              </div>
+            </div>
+
+            {/* PROGRESSO TOTAL */}
+            <div style={{marginBottom:14}}>
+              <div style={{display:"flex",justifyContent:"space-between",marginBottom:5}}>
+                <span style={{fontSize:12,color:"var(--text2)",fontWeight:600}}>Progresso total</span>
+                <span style={{fontSize:13,fontWeight:800,color:"var(--success)",fontFamily:"JetBrains Mono"}}>
+                  {fmt(stats.totalSaved)} <span style={{fontSize:11,fontWeight:500,color:"var(--text3)"}}>de {fmt(r.finalTarget)}</span>
+                </span>
+              </div>
+              <div style={{background:"var(--s3)",borderRadius:20,height:12,overflow:"hidden"}}>
+                <div style={{
+                  height:"100%",borderRadius:20,
+                  width:`${Math.min(stats.pct,100)}%`,
+                  background:stats.pct>=100?"var(--success)":"linear-gradient(90deg,#3DD598,#38BDF8)",
+                  transition:"width 0.6s",
+                }}/>
+              </div>
+              <div style={{fontSize:11,color:"var(--text3)",marginTop:4,textAlign:"right"}}>{stats.pct.toFixed(1)}% da meta final</div>
+            </div>
+
+            {/* STATUS DESTE MÊS */}
+            <div style={{
+              padding:"12px 14px",borderRadius:12,marginBottom:14,
+              background:stats.thisMonthOk?"rgba(61,213,152,0.08)":"rgba(255,107,107,0.08)",
+              border:`1px solid ${stats.thisMonthOk?"rgba(61,213,152,0.3)":"rgba(255,107,107,0.2)"}`,
+            }}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                <div>
+                  <div style={{fontSize:12,fontWeight:700,color:stats.thisMonthOk?"var(--success)":"var(--danger)"}}>
+                    {stats.thisMonthOk ? "✅ Contribuição ok" : `⚠️ ${MONTHS[currentMonth]} — pendente`}
+                  </div>
+                  {stats.deficit > 0 && !stats.thisMonthOk && (
+                    <div style={{fontSize:11,color:"var(--danger)",marginTop:3}}>
+                      Meta este mês: {fmt(extraThisMonth)} ({fmt(r.monthlyTarget)} + {fmt(stats.deficit)} de déficit anterior)
+                    </div>
+                  )}
+                  {stats.thisMonth > 0 && (
+                    <div style={{fontSize:11,color:"var(--text3)",marginTop:2}}>
+                      Contribuído: {fmt(stats.thisMonth)} {stats.thisMonth < r.monthlyTarget ? `· Falta ${fmt(r.monthlyTarget-stats.thisMonth)}` : ""}
+                    </div>
+                  )}
+                </div>
+                <button className="btn btn-success btn-sm" onClick={()=>{setContribModal(r);setContribVal(String(stats.thisMonth||"")); }}>
+                  💰 {stats.thisMonth>0?"Atualizar":"Registrar"}
+                </button>
+              </div>
+            </div>
+
+            {/* DÉFICIT ACUMULADO */}
+            {stats.deficit > 0 && (
+              <div className="alert alert-warning mb-3">
+                <AlertTriangle size={16}/>
+                <span>Déficit acumulado de <strong>{fmt(stats.deficit)}</strong> — esse valor será adicionado à meta do próximo mês.</span>
+              </div>
+            )}
+
+            {/* HISTÓRICO ÚLTIMOS MESES */}
+            {stats.prevMonths.length > 0 && (
+              <div>
+                <div style={{fontSize:12,fontWeight:700,color:"var(--text2)",marginBottom:8,textTransform:"uppercase",letterSpacing:0.5}}>Histórico</div>
+                {stats.prevMonths.map(([k,v])=>{
+                  const [y,m] = k.split("-");
+                  const ok = v >= r.monthlyTarget;
+                  return (
+                    <div key={k} style={{display:"flex",alignItems:"center",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid var(--border)"}}>
+                      <span style={{fontSize:13,color:"var(--text2)"}}>{MONTHS[parseInt(m)-1]} {y}</span>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <span style={{fontFamily:"JetBrains Mono",fontSize:13,fontWeight:700,color:ok?"var(--success)":"var(--danger)"}}>{fmt(v)}</span>
+                        {!ok && <span style={{fontSize:11,color:"var(--danger)"}}>-{fmt(r.monthlyTarget-v)}</span>}
+                        <span style={{fontSize:14}}>{ok?"✅":"❌"}</span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+
+      {/* MODAL CRIAR/EDITAR */}
+      {modal && (
+        <Modal title={edit?"Editar Reserva":"Nova Reserva"} onClose={()=>setModal(false)}>
+          <div className="form-group">
+            <label className="form-label">Ícone</label>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {RESERVE_ICONS.map(ic=>(
+                <button key={ic} onClick={()=>setForm({...form,icon:ic})}
+                  style={{fontSize:22,padding:6,border:`2px solid ${form.icon===ic?"var(--primary)":"transparent"}`,borderRadius:8,background:"var(--s2)",cursor:"pointer"}}>
+                  {ic}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Nome</label>
+            <input placeholder="Ex: Reserva de Emergência" value={form.name} onChange={e=>setForm({...form,name:e.target.value})}/>
+          </div>
+          <div className="form-row">
+            <div className="form-group">
+              <label className="form-label">Meta mensal (R$)</label>
+              <input type="number" placeholder="Ex: 500" value={form.monthlyTarget} onChange={e=>setForm({...form,monthlyTarget:e.target.value})}/>
+              <div style={{fontSize:11,color:"var(--text3)",marginTop:3}}>Quanto guardar por mês</div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Meta final (R$)</label>
+              <input type="number" placeholder="Ex: 30000" value={form.finalTarget} onChange={e=>setForm({...form,finalTarget:e.target.value})}/>
+              <div style={{fontSize:11,color:"var(--text3)",marginTop:3}}>Valor total desejado</div>
+            </div>
+          </div>
+          {totalIncome > 0 && (
+            <div style={{padding:"10px 12px",borderRadius:10,background:"rgba(61,213,152,0.08)",border:"1px solid rgba(61,213,152,0.2)",marginBottom:14}}>
+              <div style={{fontSize:12,color:"var(--success)",fontWeight:600}}>💡 Sugestões com base na sua renda:</div>
+              <div style={{fontSize:12,color:"var(--text3)",marginTop:4}}>
+                • Mensal conservador: <strong style={{color:"var(--text)"}}>{fmt(totalIncome*0.1)}</strong> (10%)<br/>
+                • Mensal recomendado: <strong style={{color:"var(--text)"}}>{fmt(totalIncome*0.2)}</strong> (20%)<br/>
+                • Meta final sugerida: <strong style={{color:"var(--text)"}}>{fmt(suggestedTarget)}</strong> (6 meses de despesas)
+              </div>
+            </div>
+          )}
+          <button className="btn btn-primary btn-full mt-2" onClick={save}>💾 Salvar</button>
+          {edit && <button className="btn btn-danger btn-full mt-2" onClick={()=>{dispatch({type:"DEL_RESERVE",id:edit.id});setModal(false);}}>🗑️ Excluir</button>}
+        </Modal>
+      )}
+
+      {/* MODAL CONTRIBUIÇÃO */}
+      {contribModal && (
+        <Modal title={`Registrar contribuição — ${MONTHS[currentMonth]}`} onClose={()=>setContribModal(null)}>
+          <div style={{textAlign:"center",padding:"8px 0 16px"}}>
+            <div style={{fontSize:36,marginBottom:6}}>{contribModal.icon||"🛡️"}</div>
+            <div style={{fontSize:16,fontWeight:800}}>{contribModal.name}</div>
+            <div style={{fontSize:12,color:"var(--text3)",marginTop:4}}>
+              Meta: {fmt(contribModal.monthlyTarget)}/mês
+              {(() => { const s = getReserveStats(contribModal); return s.deficit>0 ? ` · +${fmt(s.deficit)} de déficit = ${fmt(contribModal.monthlyTarget+s.deficit)} este mês` : ""; })()}
+            </div>
+          </div>
+          <div className="form-group">
+            <label className="form-label">Quanto você guardou em {MONTHS[currentMonth]}?</label>
+            <input type="number" placeholder="0,00" value={contribVal} onChange={e=>setContribVal(e.target.value)}
+              autoFocus style={{fontSize:20,fontWeight:700,textAlign:"center",padding:"14px"}}/>
+          </div>
+          {contribVal && !isNaN(parseFloat(contribVal)) && (() => {
+            const v = parseFloat(contribVal);
+            const ok = v >= contribModal.monthlyTarget;
+            return (
+              <div className={`alert alert-${ok?"success":"warning"} mb-3`}>
+                {ok ? <CheckCircle2 size={16}/> : <AlertTriangle size={16}/>}
+                <span>
+                  {ok ? `Meta atingida! ${v>contribModal.monthlyTarget?`${fmt(v-contribModal.monthlyTarget)} acima 🎉`:""}` : `Déficit de ${fmt(contribModal.monthlyTarget-v)} será acumulado para o próximo mês`}
+                </span>
+              </div>
+            );
+          })()}
+          <button className="btn btn-primary btn-full" onClick={saveContrib}>✅ Confirmar</button>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────
 //  METAS
 // ─────────────────────────────────────────────
@@ -1821,6 +2393,7 @@ const TABS = [
   { id:"fixed",     label:"Fixos",     Icon:Shield },
   { id:"variable",  label:"Variáveis", Icon:ShoppingCart },
   { id:"cards",     label:"Cartões",   Icon:CreditCard },
+  { id:"reserve",   label:"Reserva",   Icon:PiggyBank },
   { id:"analytics", label:"Análises",  Icon:BarChart3 },
   { id:"goals",     label:"Metas",     Icon:Target },
 ];
@@ -1854,6 +2427,7 @@ export default function App() {
       case "variable":  return <VariableExpenses {...props} />;
       case "cards":     return <CreditCards {...props} />;
       case "analytics": return <Analytics {...props} />;
+      case "reserve":   return <EmergencyReserve {...props} />;
       case "goals":     return <Goals {...props} />;
       case "settings":  return <Settings {...props} />;
       default:          return <Dashboard {...props} />;
@@ -1889,7 +2463,7 @@ export default function App() {
 
         {/* NAV BOTTOM (mobile) */}
         <nav className="nav-bottom">
-          {[...mobileTabs, {id:"goals",label:"Metas",Icon:Target}, {id:"settings",label:"Mais",Icon:MoreHorizontal}].map(({id,label,Icon})=>(
+          {[...mobileTabs.slice(0,4), {id:"reserve",label:"Reserva",Icon:PiggyBank}, {id:"settings",label:"Mais",Icon:MoreHorizontal}].map(({id,label,Icon})=>(
             <button key={id} className={`nav-btn ${tab===id?"active":""}`} onClick={()=>setTab(id)}>
               <Icon />
               <span>{label}</span>
