@@ -1084,9 +1084,14 @@ function PriorityTierCard({ tier, items, totalIncome, onEdit, onDelete, onAdd, o
 
 function FixedExpenses({ state, dispatch }) {
   const { currentMonth, currentYear } = state;
-  const [modal, setModal] = useState(false);
-  const [edit, setEdit]   = useState(null);
-  const [form, setForm]   = useState({ name:"", amount:"", dueDay:"", priority:"essential", isVariable:false });
+  const [modal, setModal]             = useState(false);
+  const [edit, setEdit]               = useState(null);
+  const [form, setForm]               = useState({ name:"", amount:"", dueDay:"", priority:"essential", isVariable:false });
+  const [actualModal, setActualModal] = useState(null);
+  const [actualVal, setActualVal]     = useState("");
+
+  const mk = monthKey(currentMonth, currentYear);
+  const getEff = (item) => effectiveFixed(item, currentMonth, currentYear);
 
   const totalIncome = state.income.reduce((s,x)=>s+effectiveIncome(x,currentMonth,currentYear),0);
   const total       = state.fixedExpenses.reduce((s,x)=>s+effectiveFixed(x,currentMonth,currentYear),0);
@@ -1106,12 +1111,6 @@ function FixedExpenses({ state, dispatch }) {
 
   function openAdd(priority = "essential") { setForm({ name:"", amount:"", dueDay:"", priority, isVariable:false }); setEdit(null); setModal(true); }
   function openEdit(item) { setForm({ name:item.name, amount:String(item.amount), dueDay:String(item.dueDay||""), priority:item.priority||"essential", isVariable:!!item.isVariable }); setEdit(item); setModal(true); }
-  const mk = monthKey(currentMonth, currentYear);
-  const [actualModal, setActualModal] = useState(null);
-  const [actualVal, setActualVal]     = useState("");
-
-  function getEff(item) { return effectiveFixed(item, currentMonth, currentYear); }
-
   function save() {
     if (!form.name.trim()||!form.amount) return;
     const p = { name:form.name.trim(), amount:parseFloat(form.amount), dueDay:parseInt(form.dueDay)||null, priority:form.priority, isVariable:form.isVariable||false, actualAmounts: edit?.actualAmounts||{} };
@@ -1891,7 +1890,8 @@ function Analytics({ state }) {
 //  RESERVA DE EMERGÊNCIA
 // ─────────────────────────────────────────────
 function EmergencyReserve({ state, dispatch }) {
-  const { reserves, currentMonth, currentYear, income, fixedExpenses } = state;
+  const { currentMonth, currentYear, income, fixedExpenses } = state;
+  const reserves = state.reserves || [];
   const [modal, setModal]       = useState(false);
   const [contribModal, setContribModal] = useState(null);
   const [edit, setEdit]         = useState(null);
