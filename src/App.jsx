@@ -2409,6 +2409,50 @@ function Settings({ state, dispatch }) {
   );
 }
 
+
+// ─────────────────────────────────────────────
+//  MENU "MAIS" — navegação mobile
+// ─────────────────────────────────────────────
+function MoreMenu({ setTab }) {
+  const menuItems = [
+    { id:"income",   label:"Receitas",    icon:"💰", desc:"Fontes de renda e salário" },
+    { id:"fixed",    label:"Gastos Fixos",icon:"🏠", desc:"Contas fixas por prioridade" },
+    { id:"cards",    label:"Cartões",     icon:"💳", desc:"Crédito e faturas" },
+    { id:"goals",    label:"Metas",       icon:"🎯", desc:"Objetivos financeiros" },
+    { id:"settings", label:"Config",      icon:"⚙️", desc:"Backup e configurações" },
+  ];
+  return (
+    <div className="page fade-in">
+      <div className="page-header">
+        <h1>Menu</h1>
+        <p className="text-muted text-sm mt-1">Todas as seções do app</p>
+      </div>
+      <div className="card" style={{padding:0,overflow:"hidden"}}>
+        {menuItems.map((item, i) => (
+          <button key={item.id} onClick={() => setTab(item.id)}
+            style={{
+              width:"100%", display:"flex", alignItems:"center", gap:14,
+              padding:"16px 20px", background:"transparent", border:"none",
+              borderBottom: i < menuItems.length-1 ? "1px solid var(--border)" : "none",
+              cursor:"pointer", textAlign:"left", fontFamily:"Outfit,sans-serif",
+            }}>
+            <div style={{
+              width:44, height:44, borderRadius:13, flexShrink:0,
+              background:"var(--s2)", display:"flex", alignItems:"center",
+              justifyContent:"center", fontSize:22,
+            }}>{item.icon}</div>
+            <div style={{flex:1, minWidth:0}}>
+              <div style={{fontSize:15, fontWeight:700, color:"var(--text)"}}>{item.label}</div>
+              <div style={{fontSize:12, color:"var(--text3)", marginTop:2}}>{item.desc}</div>
+            </div>
+            <div style={{color:"var(--text3)", fontSize:18}}>›</div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────
 //  APP PRINCIPAL
 // ─────────────────────────────────────────────
@@ -2451,7 +2495,7 @@ export default function App() {
   // Persiste no localStorage sempre que o estado muda
   useEffect(() => { saveState(state); }, [state]);
 
-  const allTabs = [...TABS, { id:"settings", label:"Config", Icon:MoreHorizontal }];
+  const allTabs = [...TABS, { id:"more", label:"Mais", Icon:MoreHorizontal }, { id:"settings", label:"Config", Icon:MoreHorizontal }];
   const mobileTabs = TABS.slice(0, 5);
   const mobileMore = TABS.slice(5);
 
@@ -2471,6 +2515,7 @@ export default function App() {
       case "analytics": return <Analytics {...props} />;
       case "reserve":   return <EmergencyReserve {...props} />;
       case "goals":     return <Goals {...props} />;
+      case "more":      return <MoreMenu setTab={setTab} />;
       case "settings":  return <Settings {...props} />;
       default:          return <Dashboard {...props} />;
     }
@@ -2505,7 +2550,7 @@ export default function App() {
 
         {/* NAV BOTTOM (mobile) */}
         <nav className="nav-bottom">
-          {[{id:"dashboard",label:"Início",Icon:LayoutDashboard},{id:"variable",label:"Variáveis",Icon:ShoppingCart},{id:"reserve",label:"Reserva",Icon:PiggyBank},{id:"analytics",label:"Análises",Icon:BarChart3},{id:"settings",label:"Mais",Icon:MoreHorizontal}].map(({id,label,Icon})=>(
+          {[{id:"dashboard",label:"Início",Icon:LayoutDashboard},{id:"variable",label:"Variáveis",Icon:ShoppingCart},{id:"reserve",label:"Reserva",Icon:PiggyBank},{id:"analytics",label:"Análises",Icon:BarChart3},{id:"more",label:"Mais",Icon:MoreHorizontal}].map(({id,label,Icon})=>(
             <button key={id} className={`nav-btn ${tab===id?"active":""}`} onClick={()=>setTab(id)}>
               <Icon />
               <span>{label}</span>
