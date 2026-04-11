@@ -321,13 +321,41 @@ select option { background: var(--s2); color: var(--text); }
 img, svg { max-width: 100%; }
 .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
 .nowrap { white-space: nowrap; }
-@media (max-width: 400px) {
+
+/* Prevent text overflow everywhere */
+p, span, div, h1, h2, h3, label { max-width: 100%; }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+
+/* Fix list items overlapping on small screens */
+.list-item { flex-wrap: nowrap; min-height: 52px; }
+.list-item-left { min-width: 0; flex: 1; overflow: hidden; }
+
+/* Fix stat cards on very small screens */
+@media (max-width: 380px) {
+  .stat-grid { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .stat-value { font-size: 14px; letter-spacing: -0.3px; }
+  .stat-card { padding: 12px 10px; }
   .card { padding: 14px 12px; }
-  .big-num { font-size: 26px; letter-spacing: -1px; }
+  .big-num { font-size: 24px; letter-spacing: -1px; }
   .btn { padding: 9px 14px; font-size: 13px; }
-  .btn-sm { padding: 6px 10px; font-size: 11px; }
+  .btn-sm { padding: 5px 8px; font-size: 11px; }
   .page { padding: 16px 12px; }
+  .section-head h3 { font-size: 14px; }
+  .cat-ico { width: 34px; height: 34px; font-size: 16px; }
+  .nav-btn { min-width: 40px; font-size: 9px; padding: 4px 6px; }
+  .nav-btn svg { width: 18px; height: 18px; }
+  .modal-box { padding: 20px 14px 24px; }
 }
+
+/* Fix analytics pie chart on mobile */
+@media (max-width: 500px) {
+  .recharts-wrapper { overflow: hidden; }
+  .pie-mobile { flex-direction: column !important; align-items: center !important; }
+}
+
+/* Fix flex rows that can cause overlay */
+.flex-safe { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; overflow: hidden; }
+.flex-safe > * { min-width: 0; flex-shrink: 1; }
 `;
 
 // ─────────────────────────────────────────────
@@ -646,32 +674,30 @@ function Dashboard({ state, dispatch }) {
         <div className="big-num" style={{color: stats.available >= 0 ? "var(--success)" : "var(--danger)"}}>
           {fmt(stats.available)}
         </div>
-        <div className="flex items-center gap-3 mt-3" style={{flexWrap:"wrap"}}>
-          <span className="text-muted text-sm">
-            💡 Você pode gastar <span style={{color:"var(--warning)", fontWeight:700}}>{fmt(Math.max(stats.dailyBudget,0))}</span>/dia
+        <div style={{display:"flex",flexDirection:"column",gap:4,marginTop:10}}>
+          <span style={{fontSize:13,color:"var(--text2)"}}>
+            💡 Gastar até <span style={{color:"var(--warning)",fontWeight:700}}>{fmt(Math.max(stats.dailyBudget,0))}</span>/dia
           </span>
-          <span className="text-muted text-sm">{stats.daysLeft} dias restantes</span>
+          <span style={{fontSize:12,color:"var(--text3)"}}>{stats.daysLeft} dias restantes no mês</span>
         </div>
         <div className="divider" />
-        <div className="flex gap-4" style={{flexWrap:"wrap", rowGap:8}}>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:8,marginTop:4}}>
           <div>
-            <div className="text-xs color-muted">Renda</div>
-            <div className="text-sm font-semi color-success">+{fmt(stats.totalIncome)}</div>
+            <div style={{fontSize:10,color:"var(--text3)"}}>Renda</div>
+            <div style={{fontSize:12,fontWeight:700,color:"var(--success)",fontFamily:"JetBrains Mono"}}>{fmtShort(stats.totalIncome)}</div>
           </div>
           <div>
-            <div className="text-xs color-muted">Fixos</div>
-            <div className="text-sm font-semi color-danger">-{fmt(stats.totalFixed)}</div>
+            <div style={{fontSize:10,color:"var(--text3)"}}>Fixos</div>
+            <div style={{fontSize:12,fontWeight:700,color:"var(--danger)",fontFamily:"JetBrains Mono"}}>-{fmtShort(stats.totalFixed)}</div>
           </div>
           <div>
-            <div className="text-xs color-muted">Variáveis</div>
-            <div className="text-sm font-semi color-warning">-{fmt(stats.totalVar)}</div>
+            <div style={{fontSize:10,color:"var(--text3)"}}>Variáveis</div>
+            <div style={{fontSize:12,fontWeight:700,color:"var(--warning)",fontFamily:"JetBrains Mono"}}>-{fmtShort(stats.totalVar)}</div>
           </div>
-          {stats.totalCard > 0 && (
-            <div>
-              <div className="text-xs color-muted">Crédito</div>
-              <div className="text-sm font-semi" style={{color:"var(--info)"}}>-{fmt(stats.totalCard)}</div>
-            </div>
-          )}
+          <div>
+            <div style={{fontSize:10,color:"var(--text3)"}}>Crédito</div>
+            <div style={{fontSize:12,fontWeight:700,color:"var(--info)",fontFamily:"JetBrains Mono"}}>{stats.totalCard>0?`-${fmtShort(stats.totalCard)}`:"—"}</div>
+          </div>
         </div>
       </div>
 
@@ -885,49 +911,42 @@ function Income({ state, dispatch }) {
             const effective = effectiveIncome(item, currentMonth, currentYear);
             const hasReal   = item.actualAmounts?.[mk] != null;
             return (
-              <div key={item.id} className="list-item" style={{flexWrap:"wrap",gap:8}}>
-                <div className="list-item-left">
-                  <div className="cat-ico" style={{background:"var(--success2)"}}>
-                    <DollarSign size={20} color="var(--success)" />
+              <div key={item.id} style={{
+                padding:"12px 0", borderBottom:"1px solid var(--border)",
+              }}>
+                {/* Linha 1: ícone + nome + ações */}
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div className="cat-ico" style={{background:"var(--success2)",flexShrink:0}}>
+                    <DollarSign size={18} color="var(--success)" />
                   </div>
-                  <div style={{minWidth:0}}>
-                    <div className="text-sm font-semi truncate">{item.name}</div>
-                    <div style={{display:"flex",gap:5,flexWrap:"wrap",marginTop:3}}>
-                      <span className="badge badge-success" style={{fontSize:10}}>{item.recurring?"Recorrente":"Eventual"}</span>
-                      {item.isVariable && (
-                        <span style={{fontSize:10,fontWeight:700,padding:"2px 7px",borderRadius:20,background:"rgba(255,181,71,0.15)",color:"var(--warning)"}}>
-                          Variável
-                        </span>
-                      )}
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:600,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{item.name}</div>
+                    <div style={{display:"flex",gap:5,marginTop:3,flexWrap:"wrap"}}>
+                      <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"var(--success2)",color:"var(--success)"}}>{item.recurring?"Recorrente":"Eventual"}</span>
+                      {item.isVariable && <span style={{fontSize:10,fontWeight:700,padding:"2px 8px",borderRadius:20,background:"rgba(255,181,71,0.15)",color:"var(--warning)"}}>Variável</span>}
                     </div>
+                  </div>
+                  <div style={{display:"flex",gap:5,flexShrink:0}}>
+                    <button className="btn btn-ghost btn-icon btn-sm" onClick={()=>openEdit(item)}><Edit2 size={13}/></button>
+                    <button className="btn btn-danger btn-icon btn-sm" onClick={()=>dispatch({type:"DEL_INCOME",id:item.id})}><Trash2 size={13}/></button>
                   </div>
                 </div>
-                <div style={{display:"flex",alignItems:"center",gap:6,flexShrink:0}}>
+                {/* Linha 2: valor + botão real */}
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginTop:10,paddingLeft:48}}>
+                  <div>
+                    <div style={{fontSize:16,fontWeight:800,fontFamily:"JetBrains Mono",color:hasReal?"var(--success)":"var(--text2)"}}>{fmt(effective)}</div>
+                    {item.isVariable && !hasReal && <div style={{fontSize:10,color:"var(--warning)"}}>estimado — registre o valor real</div>}
+                    {item.isVariable && hasReal && <div style={{fontSize:10,color:"var(--text3)"}}>real · estimado: {fmt(item.amount)}</div>}
+                  </div>
                   {item.isVariable && (
-                    <div style={{textAlign:"right",marginRight:4}}>
-                      {hasReal ? (
-                        <>
-                          <div style={{fontSize:13,fontWeight:800,color:"var(--success)",fontFamily:"JetBrains Mono"}}>{fmt(effective)}</div>
-                          <div style={{fontSize:10,color:"var(--text3)"}}>real · est. {fmt(item.amount)}</div>
-                        </>
-                      ) : (
-                        <>
-                          <div style={{fontSize:13,fontWeight:800,color:"var(--text2)",fontFamily:"JetBrains Mono"}}>{fmt(item.amount)}</div>
-                          <div style={{fontSize:10,color:"var(--warning)"}}>estimado</div>
-                        </>
-                      )}
-                    </div>
-                  )}
-                  {!item.isVariable && (
-                    <div className="font-bold color-success mono" style={{fontSize:13}}>{fmt(item.amount)}</div>
-                  )}
-                  {item.isVariable && (
-                    <button className="btn btn-success btn-sm" style={{padding:"5px 10px",fontSize:11}} onClick={()=>openActual(item)}>
-                      {hasReal?"✏️":"📝"} Real
+                    <button onClick={()=>openActual(item)} style={{
+                      padding:"6px 14px",borderRadius:10,border:"1px solid rgba(61,213,152,0.3)",
+                      background:"rgba(61,213,152,0.1)",color:"var(--success)",
+                      fontSize:12,fontWeight:700,cursor:"pointer",fontFamily:"Outfit,sans-serif",
+                    }}>
+                      {hasReal?"✏️ Editar":"📝 Registrar"} real
                     </button>
                   )}
-                  <button className="btn btn-ghost btn-icon btn-sm" onClick={()=>openEdit(item)}><Edit2 size={13}/></button>
-                  <button className="btn btn-danger btn-icon btn-sm" onClick={()=>dispatch({type:"DEL_INCOME",id:item.id})}><Trash2 size={13}/></button>
                 </div>
               </div>
             );
@@ -1052,25 +1071,29 @@ function PriorityTierCard({ tier, items, totalIncome, onEdit, onDelete, onAdd, o
         <div style={{ padding:"8px 16px 14px" }}>
           <div style={{ fontSize:11, color:"var(--text3)", marginTop:10, marginBottom:8, fontWeight:600, letterSpacing:0.4, textTransform:"uppercase" }}>💡 {cfg.tip}</div>
           {items.map(item => (
-            <div key={item.id} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0", borderTop:"1px solid rgba(255,255,255,0.05)" }}>
-              <div style={{ width:6, height:32, borderRadius:3, background:cfg.color, flexShrink:0 }} />
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontSize:14, fontWeight:600, color:"var(--text)" }} className="truncate">{item.name}</div>
-                {item.dueDay && <div style={{ fontSize:11, color:"var(--text3)" }}>Vence dia {item.dueDay}</div>}
+            <div key={item.id} style={{ padding:"10px 0", borderTop:"1px solid rgba(255,255,255,0.05)" }}>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <div style={{ width:5, height:36, borderRadius:3, background:cfg.color, flexShrink:0 }} />
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ fontSize:14, fontWeight:600, color:"var(--text)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.name}</div>
+                  <div style={{display:"flex",alignItems:"center",gap:8,marginTop:3}}>
+                    <div style={{ fontFamily:"JetBrains Mono", fontWeight:700, fontSize:14, color:cfg.color }}>{fmt(onGetEffective ? onGetEffective(item) : item.amount)}</div>
+                    {item.isVariable && onGetEffective && onGetEffective(item)!==item.amount && (
+                      <div style={{fontSize:10,color:"var(--text3)"}}>est. {fmt(item.amount)}</div>
+                    )}
+                    {item.dueDay && <div style={{ fontSize:11, color:"var(--text3)" }}>· dia {item.dueDay}</div>}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:4,flexShrink:0}}>
+                  {item.isVariable && onRecordActual && (
+                    <button style={{padding:"5px 8px",borderRadius:8,border:"1px solid rgba(255,255,255,0.1)",background:"transparent",color:cfg.color,fontSize:12,cursor:"pointer",fontFamily:"Outfit,sans-serif"}} onClick={()=>onRecordActual(item)}>
+                      📝
+                    </button>
+                  )}
+                  <button className="btn btn-ghost btn-icon btn-sm" onClick={() => onEdit(item)}><Edit2 size={12}/></button>
+                  <button className="btn btn-danger btn-icon btn-sm" onClick={() => onDelete(item.id)}><Trash2 size={12}/></button>
+                </div>
               </div>
-              <div style={{textAlign:"right",flexShrink:0}}>
-                <div style={{ fontFamily:"JetBrains Mono", fontWeight:700, fontSize:14, color:cfg.color }}>{fmt(onGetEffective ? onGetEffective(item) : item.amount)}</div>
-                {item.isVariable && onGetEffective && onGetEffective(item)!==item.amount && (
-                  <div style={{fontSize:10,color:"var(--text3)"}}>est. {fmt(item.amount)}</div>
-                )}
-              </div>
-              {item.isVariable && onRecordActual && (
-                <button className="btn btn-ghost btn-sm" style={{padding:"4px 8px",fontSize:11}} onClick={()=>onRecordActual(item)}>
-                  📝
-                </button>
-              )}
-              <button className="btn btn-ghost btn-icon btn-sm" onClick={() => onEdit(item)}><Edit2 size={12}/></button>
-              <button className="btn btn-danger btn-icon btn-sm" onClick={() => onDelete(item.id)}><Trash2 size={12}/></button>
             </div>
           ))}
           <button onClick={() => onAdd(tier)} style={{ marginTop:10, width:"100%", padding:"9px", borderRadius:10, border:`1px dashed ${cfg.border}`, background:"transparent", color:cfg.color, fontSize:13, fontWeight:600, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center", gap:6, fontFamily:"Outfit,sans-serif" }}>
@@ -1357,9 +1380,11 @@ function VariableExpenses({ state, dispatch }) {
   return (
     <div className="page fade-in">
       <div className="page-header">
-        <h1>Gastos Variáveis</h1>
-        <MonthNav month={currentMonth} year={currentYear}
-          onChange={(m,y)=>dispatch({type:"SET_MONTH",month:m,year:y})} />
+        <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+          <h1>Gastos Variáveis</h1>
+          <MonthNav month={currentMonth} year={currentYear}
+            onChange={(m,y)=>dispatch({type:"SET_MONTH",month:m,year:y})} />
+        </div>
       </div>
 
       <div className="flex gap-2 mb-4" style={{flexWrap:"wrap"}}>
@@ -1641,14 +1666,14 @@ function CreditCards({ state, dispatch }) {
             <div key={card.id} className="mb-4">
               <div className="cc-visual" style={{background:card.color, cursor:"pointer"}} onClick={()=>setSelCard(isSelected?null:card.id)}>
                 <div className="cc-shine" />
-                <div className="flex justify-between items-start mb-4">
-                  <div style={{fontSize:13,fontWeight:700,opacity:0.9}}>{card.name}</div>
-                  <button className="btn btn-danger btn-icon btn-sm" onClick={e=>{e.stopPropagation();dispatch({type:"DEL_CARD",id:card.id});}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14,gap:8}}>
+                  <div style={{fontSize:13,fontWeight:700,opacity:0.9,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{card.name}</div>
+                  <button className="btn btn-danger btn-icon btn-sm" style={{flexShrink:0}} onClick={e=>{e.stopPropagation();dispatch({type:"DEL_CARD",id:card.id});}}>
                     <Trash2 size={12}/>
                   </button>
                 </div>
-                <div style={{fontFamily:"JetBrains Mono",fontSize:22,fontWeight:700,letterSpacing:-1,color:"#000"}}>
-                  {fmt(card.limit - card.used)} <span style={{fontSize:12,opacity:0.6}}>disponível</span>
+                <div style={{fontFamily:"JetBrains Mono",fontSize:"clamp(16px,5vw,22px)",fontWeight:700,letterSpacing:-1,color:"#000"}}>
+                  {fmt(card.limit - card.used)} <span style={{fontSize:11,opacity:0.6}}>disp.</span>
                 </div>
                 <div style={{marginTop:12}}>
                   <ProgressBar spent={card.used} limit={card.limit} color="rgba(0,0,0,0.4)" />
@@ -1857,8 +1882,8 @@ function Analytics({ state }) {
       {catPie.length > 0 && (
         <div className="card">
           <h3 className="mb-4">Gastos por Categoria — {MONTHS[currentMonth]}</h3>
-          <div className="flex gap-4" style={{flexWrap:"wrap",alignItems:"center"}}>
-            <PieChart width={160} height={160}>
+          <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"center",justifyContent:"center"}}>
+            <PieChart width={150} height={150}>
               <Pie data={catPie} cx={75} cy={75} innerRadius={45} outerRadius={75} paddingAngle={2} dataKey="value">
                 {catPie.map((c,i) => <Cell key={i} fill={c.color} />)}
               </Pie>
@@ -2199,16 +2224,16 @@ function Goals({ state, dispatch }) {
           const daysLeft = goal.deadline ? Math.max(0,Math.ceil((new Date(goal.deadline)-new Date())/(1000*60*60*24))) : null;
           return (
             <div key={goal.id} className="card mb-3" style={{border:`1px solid ${goal.color}33`}}>
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <div style={{fontSize:28}}>{goal.icon}</div>
-                  <div>
-                    <div className="font-semi">{goal.name}</div>
-                    {goal.deadline && <div className="text-xs color-muted">{daysLeft!==null?`${daysLeft} dias restantes`:""} · Até {new Date(goal.deadline).toLocaleDateString("pt-BR")}</div>}
+              <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:12,gap:8}}>
+                <div style={{display:"flex",alignItems:"center",gap:10,minWidth:0,flex:1}}>
+                  <div style={{fontSize:26,flexShrink:0}}>{goal.icon}</div>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontWeight:600,fontSize:15,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{goal.name}</div>
+                    {goal.deadline && <div className="text-xs color-muted">{daysLeft!==null?`${daysLeft} dias`:""} · {new Date(goal.deadline).toLocaleDateString("pt-BR")}</div>}
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  {!done && <button className="btn btn-ghost btn-sm" onClick={()=>{setContribModal(goal);setContrib("");}}>💰 Contribuir</button>}
+                <div style={{display:"flex",gap:6,flexShrink:0}}>
+                  {!done && <button className="btn btn-ghost btn-sm" style={{padding:"5px 8px",fontSize:11}} onClick={()=>{setContribModal(goal);setContrib("");}}>💰</button>}
                   <button className="btn btn-danger btn-icon btn-sm" onClick={()=>dispatch({type:"DEL_GOAL",id:goal.id})}><Trash2 size={12}/></button>
                 </div>
               </div>
@@ -2216,22 +2241,22 @@ function Goals({ state, dispatch }) {
               <div className="prog-wrap" style={{height:10,marginBottom:10}}>
                 <div className="prog-bar" style={{width:`${Math.min(pct,100)}%`,background:done?"var(--success)":goal.color}} />
               </div>
-              <div className="flex justify-between">
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"8px 12px"}}>
                 <div>
                   <div className="text-xs color-muted">Guardado</div>
-                  <div className="font-bold mono" style={{color:goal.color}}>{fmt(goal.current)}</div>
+                  <div style={{fontWeight:700,fontFamily:"JetBrains Mono",fontSize:13,color:goal.color}}>{fmt(goal.current)}</div>
                 </div>
-                <div className="text-right">
+                <div>
                   <div className="text-xs color-muted">Objetivo</div>
-                  <div className="font-bold mono">{fmt(goal.target)}</div>
+                  <div style={{fontWeight:700,fontFamily:"JetBrains Mono",fontSize:13}}>{fmt(goal.target)}</div>
                 </div>
-                <div className="text-right">
+                <div>
                   <div className="text-xs color-muted">Faltam</div>
-                  <div className="font-bold mono color-muted">{fmt(remaining)}</div>
+                  <div style={{fontWeight:700,fontFamily:"JetBrains Mono",fontSize:13,color:"var(--text3)"}}>{fmt(remaining)}</div>
                 </div>
-                <div className="text-right">
+                <div>
                   <div className="text-xs color-muted">Progresso</div>
-                  <div className="font-bold" style={{color:done?"var(--success)":goal.color}}>{pct.toFixed(1)}%</div>
+                  <div style={{fontWeight:700,fontSize:13,color:done?"var(--success)":goal.color}}>{pct.toFixed(1)}%</div>
                 </div>
               </div>
             </div>
@@ -2401,7 +2426,24 @@ const TABS = [
 export default function App() {
   const [state, dispatch] = useReducer(reducer, null, () => {
     const saved = loadState();
-    return saved || INIT_STATE;
+    if (!saved) return INIT_STATE;
+    // Migrate old state: ensure all new fields exist
+    return {
+      ...INIT_STATE,
+      ...saved,
+      reserves: saved.reserves || [],
+      income: (saved.income || []).map(x => ({
+        actualAmounts: {}, isVariable: false, ...x
+      })),
+      fixedExpenses: (saved.fixedExpenses || []).map(x => ({
+        actualAmounts: {}, isVariable: false, ...x
+      })),
+      creditCards: saved.creditCards || [],
+      cardTransactions: saved.cardTransactions || [],
+      goals: saved.goals || [],
+      transactions: saved.transactions || [],
+      variableCategories: saved.variableCategories || INIT_STATE.variableCategories,
+    };
   });
 
   const [tab, setTab] = useState("dashboard");
@@ -2463,7 +2505,7 @@ export default function App() {
 
         {/* NAV BOTTOM (mobile) */}
         <nav className="nav-bottom">
-          {[...mobileTabs.slice(0,4), {id:"reserve",label:"Reserva",Icon:PiggyBank}, {id:"settings",label:"Mais",Icon:MoreHorizontal}].map(({id,label,Icon})=>(
+          {[{id:"dashboard",label:"Início",Icon:LayoutDashboard},{id:"variable",label:"Variáveis",Icon:ShoppingCart},{id:"reserve",label:"Reserva",Icon:PiggyBank},{id:"analytics",label:"Análises",Icon:BarChart3},{id:"settings",label:"Mais",Icon:MoreHorizontal}].map(({id,label,Icon})=>(
             <button key={id} className={`nav-btn ${tab===id?"active":""}`} onClick={()=>setTab(id)}>
               <Icon />
               <span>{label}</span>
