@@ -140,6 +140,7 @@ h3 { font-size: 15px; font-weight: 600; }
   padding: 10px 18px; border-radius: var(--r-sm); border: none;
   font-family: 'Outfit', sans-serif; font-size: 14px; font-weight: 600;
   cursor: pointer; transition: all 0.18s; white-space: nowrap;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
 }
 .btn svg { width: 16px; height: 16px; flex-shrink: 0; }
 .btn-primary { background: var(--primary); color: #0A0C16; }
@@ -162,9 +163,13 @@ h3 { font-size: 15px; font-weight: 600; }
 input, select, textarea {
   background: var(--s2); border: 1px solid var(--border);
   color: var(--text); border-radius: var(--r-sm);
-  padding: 10px 14px; font-family: 'Outfit', sans-serif; font-size: 14px;
+  padding: 10px 14px; font-family: 'Outfit', sans-serif;
+  /* 16px evita zoom automático no iOS ao focar */
+  font-size: 16px;
   width: 100%; transition: border-color 0.2s; outline: none;
   -webkit-appearance: none;
+  /* Melhor experiência de toque */
+  touch-action: manipulation;
 }
 input:focus, select:focus, textarea:focus { border-color: var(--primary); background: rgba(124,131,245,0.04); }
 input::placeholder, textarea::placeholder { color: var(--text3); }
@@ -199,15 +204,23 @@ select option { background: var(--s2); color: var(--text); }
   position: fixed; inset: 0; z-index: 200;
   background: rgba(0,0,0,0.7); backdrop-filter: blur(6px);
   display: flex; align-items: flex-end; justify-content: center;
+  /* Garante que o modal fica visível mesmo com teclado aberto */
+  padding-bottom: env(keyboard-inset-height, 0px);
 }
-@media (min-width: 640px) { .modal-bg { align-items: center; } }
+@media (min-width: 640px) { .modal-bg { align-items: center; padding-bottom: 0; } }
 .modal-box {
   background: var(--s1); border: 1px solid var(--border2);
-  border-radius: 22px 22px 0 0; padding: 24px 20px 28px;
-  width: 100%; max-width: 460px; max-height: 92vh; overflow-y: auto;
+  border-radius: 22px 22px 0 0; padding: 24px 20px 32px;
+  width: 100%; max-width: 460px;
+  /* Usa dvh para descontar teclado virtual no iOS/Android */
+  max-height: 85dvh;
+  max-height: 85vh; /* fallback */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   animation: modalUp 0.28s cubic-bezier(0.34,1.56,0.64,1);
 }
-@media (min-width: 640px) { .modal-box { border-radius: 22px; } }
+@media (min-width: 640px) { .modal-box { border-radius: 22px; max-height: 90vh; } }
 @keyframes modalUp { from { transform: translateY(30px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
 .modal-handle { width: 40px; height: 4px; background: var(--border2); border-radius: 2px; margin: -10px auto 16px; }
@@ -539,17 +552,24 @@ function Modal({ title, onClose, children }) {
   useEffect(() => {
     const fn = (e) => e.key === "Escape" && onClose();
     document.addEventListener("keydown", fn);
-    return () => document.removeEventListener("keydown", fn);
+    // Prevent body scroll when modal is open
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", fn);
+      document.body.style.overflow = "";
+    };
   }, [onClose]);
   return (
     <div className="modal-bg" onClick={e => e.target===e.currentTarget && onClose()}>
-      <div className="modal-box">
+      <div className="modal-box" onClick={e => e.stopPropagation()}>
         <div className="modal-handle" />
         <div className="modal-header">
           <h3>{title}</h3>
           <button className="btn btn-ghost btn-icon btn-sm" onClick={onClose}><X size={15}/></button>
         </div>
         {children}
+        {/* Espaço extra embaixo para o botão salvar não ficar atrás do teclado */}
+        <div style={{height: "env(safe-area-inset-bottom, 12px)"}} />
       </div>
     </div>
   );
@@ -1630,7 +1650,7 @@ function VariableExpenses({ state, dispatch }) {
               )}
             </div>
           )}
-          <button className="btn btn-primary btn-full mt-2" onClick={saveTx}>💾 Registrar</button>
+          <button className="btn btn-primary btn-full" style={{marginTop:16,padding:"14px",fontSize:16,minHeight:52}} onClick={saveTx}>💾 Registrar gasto</button>
         </Modal>
       )}
     </div>
