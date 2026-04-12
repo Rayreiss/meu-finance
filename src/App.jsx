@@ -1374,7 +1374,8 @@ function VariableExpenses({ state, dispatch }) {
   }
   function openAddTx(catId) { setTxForm({ categoryId:catId||"", amount:"", description:"", date:new Date().toISOString().slice(0,10), paymentMethod:"pix", cardId:"", installments:1 }); setModalTx(true); }
   function saveTx() {
-    if (!txForm.categoryId||!txForm.amount) return;
+    if (!txForm.categoryId) { alert("Selecione uma categoria"); return; }
+    if (!txForm.amount || parseFloat(txForm.amount) <= 0) { alert("Digite um valor válido"); return; }
     const baseAmt  = parseFloat(txForm.amount);
     const n        = parseInt(txForm.installments) || 1;
     const catName  = variableCategories.find(c=>c.id===txForm.categoryId)?.name || "";
@@ -1608,17 +1609,11 @@ function VariableExpenses({ state, dispatch }) {
           </div>
           <div className="form-group">
             <label className="form-label">Meio de pagamento</label>
-            <div style={{display:"grid",gridTemplateColumns:"repeat(5,1fr)",gap:6}}>
+            <select value={txForm.paymentMethod} onChange={e=>setTxForm(f=>({...f,paymentMethod:e.target.value,cardId:"",installments:1}))}>
               {PAYMENT_METHODS.map(pm=>(
-                <button key={pm.id} onClick={()=>setTxForm({...txForm,paymentMethod:pm.id,cardId:""})}
-                  style={{padding:"8px 4px",borderRadius:10,border:`2px solid ${txForm.paymentMethod===pm.id?pm.color:"transparent"}`,
-                    background:txForm.paymentMethod===pm.id?`${pm.color}18`:"var(--s2)",
-                    cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,fontFamily:"Outfit,sans-serif"}}>
-                  <span style={{fontSize:18}}>{pm.icon}</span>
-                  <span style={{fontSize:10,fontWeight:700,color:txForm.paymentMethod===pm.id?pm.color:"var(--text3)"}}>{pm.label}</span>
-                </button>
+                <option key={pm.id} value={pm.id}>{pm.icon} {pm.label}</option>
               ))}
-            </div>
+            </select>
           </div>
           {txForm.paymentMethod==="credit" && state.creditCards.length>0 && (
             <div className="form-group">
