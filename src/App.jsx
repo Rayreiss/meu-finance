@@ -1374,8 +1374,11 @@ function VariableExpenses({ state, dispatch }) {
   }
   function openAddTx(catId) { setTxForm({ categoryId:catId||"", amount:"", description:"", date:new Date().toISOString().slice(0,10), paymentMethod:"pix", cardId:"", installments:1 }); setModalTx(true); }
   function saveTx() {
-    if (!txForm.categoryId) { alert("Selecione uma categoria"); return; }
-    if (!txForm.amount || parseFloat(txForm.amount) <= 0) { alert("Digite um valor válido"); return; }
+    // DEBUG — mostra o estado exato do form no momento do save
+    if (!txForm.categoryId || !txForm.amount || parseFloat(txForm.amount) <= 0) {
+      alert("Dados: categoria=" + txForm.categoryId + " | valor=" + txForm.amount + " | data=" + txForm.date + " | pagamento=" + txForm.paymentMethod);
+      return;
+    }
     const baseAmt  = parseFloat(txForm.amount);
     const n        = parseInt(txForm.installments) || 1;
     const catName  = variableCategories.find(c=>c.id===txForm.categoryId)?.name || "";
