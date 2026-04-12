@@ -1322,7 +1322,7 @@ function VariableExpenses({ state, dispatch }) {
   const [editCat, setEditCat] = useState(null);
   const [selectedCat, setSelectedCat] = useState(null);
   const [catForm, setCatForm] = useState({ name:"", limit:"", color:"#3DD598", priority:"important", icon:"🛒" });
-  const [txForm, setTxForm] = useState({ categoryId:"", amount:"", description:"", date:"", paymentMethod:"pix", cardId:"" });
+  const [txForm, setTxForm] = useState({ categoryId:"", amount:"", description:"", date:"", paymentMethod:"pix", cardId:"", installments:1 });
   const [search, setSearch] = useState("");
 
   const catStats = useMemo(() => {
@@ -1352,27 +1352,38 @@ function VariableExpenses({ state, dispatch }) {
     else dispatch({type:"ADD_CAT",p});
     setModalCat(false);
   }
-  function openAddTx(catId) { setTxForm({ categoryId:catId||"", amount:"", description:"", date:new Date().toISOString().slice(0,10), paymentMethod:"pix", cardId:"" }); setModalTx(true); }
+  function openAddTx(catId) { setTxForm({ categoryId:catId||"", amount:"", description:"", date:new Date().toISOString().slice(0,10), paymentMethod:"pix", cardId:"", installments:1 }); setModalTx(true); }
   function saveTx() {
     if (!txForm.categoryId||!txForm.amount) return;
+    const baseAmt  = parseFloat(txForm.amount);
+    const n        = parseInt(txForm.installments) || 1;
+    const catName  = variableCategories.find(c=>c.id===txForm.categoryId)?.name || "";
+    const baseDate = new Date((txForm.date || new Date().toISOString().slice(0,10))+"T12:00:00");
+    // Registra 1 transação variável com valor total
     dispatch({type:"ADD_TX", p:{
-      categoryId:txForm.categoryId,
-      amount:parseFloat(txForm.amount),
-      description:txForm.description,
-      date: new Date(txForm.date+"T12:00:00").toISOString(),
-      paymentMethod: txForm.paymentMethod||"pix",
-      cardId: txForm.paymentMethod==="credit" ? txForm.cardId : null,
+      categoryId:   txForm.categoryId,
+      amount:       baseAmt,
+      description:  txForm.description || (n>1 ? `${catName} (total ${n}x)` : catName),
+      date:         baseDate.toISOString(),
+      paymentMethod:txForm.paymentMethod||"pix",
+      cardId:       txForm.paymentMethod==="credit" ? txForm.cardId : null,
+      installments: n,
     }});
-    // Se pagou no crédito, também lança na fatura do cartão
+    // Se crédito: lança cada parcela na fatura do mês correspondente
     if (txForm.paymentMethod==="credit" && txForm.cardId) {
-      dispatch({type:"ADD_CARD_TX", p:{
-        cardId:txForm.cardId,
-        amount:parseFloat(txForm.amount),
-        description:txForm.description||variableCategories.find(c=>c.id===txForm.categoryId)?.name,
-        date: new Date(txForm.date+"T12:00:00").toISOString(),
-        installments:1, installmentNum:1,
-        fromVariable:true,
-      }});
+      for (let i=0; i<n; i++) {
+        const d = new Date(baseDate);
+        d.setMonth(d.getMonth() + i);
+        dispatch({type:"ADD_CARD_TX", p:{
+          cardId:         txForm.cardId,
+          amount:         parseFloat((baseAmt/n).toFixed(2)),
+          description:    (txForm.description||catName) + (n>1 ? ` (${i+1}/${n})` : ""),
+          date:           d.toISOString(),
+          installments:   n,
+          installmentNum: i+1,
+          fromVariable:   true,
+        }});
+      }
     }
     setModalTx(false);
   }
@@ -1504,6 +1515,7 @@ function VariableExpenses({ state, dispatch }) {
                           const pm = PAYMENT_METHODS.find(p=>p.id===tx.paymentMethod);
                           return pm ? <span style={{padding:"1px 6px",borderRadius:20,background:`${pm.color}22`,color:pm.color,fontSize:10,fontWeight:700}}>{pm.icon} {pm.label}</span> : null;
                         })()}
+                        {tx.installments>1 && <span style={{padding:"1px 6px",borderRadius:20,background:"rgba(56,189,248,0.15)",color:"var(--info)",fontSize:10,fontWeight:700}}>{tx.installments}x</span>}
                       </div>
                     </div>
                   </div>
@@ -1600,6 +1612,24 @@ function VariableExpenses({ state, dispatch }) {
           {txForm.paymentMethod==="credit" && state.creditCards.length===0 && (
             <div className="alert alert-info mb-3"><Zap size={16}/><span>Cadastre um cartão na aba Cartões para vincular compras no crédito.</span></div>
           )}
+          {/* Parcelamento — só aparece no crédito */}
+          {txForm.paymentMethod==="credit" && (
+            <div className="form-group">
+              <label className="form-label">Parcelas</label>
+              <select value={txForm.installments} onChange={e=>setTxForm({...txForm,installments:parseInt(e.target.value)})}>
+                {[1,2,3,4,5,6,7,8,9,10,11,12].map(n=>(
+                  <option key={n} value={n}>
+                    {n===1 ? "À vista" : `${n}x de ${txForm.amount ? fmt(parseFloat(txForm.amount)/n) : "—"}`}
+                  </option>
+                ))}
+              </select>
+              {txForm.installments>1 && txForm.amount && (
+                <div style={{fontSize:12,color:"var(--info)",marginTop:5}}>
+                  💳 {txForm.installments}x de {fmt(parseFloat(txForm.amount)/txForm.installments)} — distribuído nas próximas {txForm.installments} faturas
+                </div>
+              )}
+            </div>
+          )}
           <button className="btn btn-primary btn-full mt-2" onClick={saveTx}>💾 Registrar</button>
         </Modal>
       )}
@@ -1664,13 +1694,18 @@ function CreditCards({ state, dispatch }) {
           const isSelected = selCard===card.id;
           return (
             <div key={card.id} className="mb-4">
+              {/* Header fora do visual clicável */}
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:8,gap:8}}>
+                <div style={{fontSize:14,fontWeight:700,color:"var(--text)"}}>{card.name}</div>
+                <button className="btn btn-danger btn-sm" style={{padding:"5px 10px",fontSize:11}}
+                  onClick={()=>{ if(window.confirm(`Apagar cartão "${card.name}"?`)) dispatch({type:"DEL_CARD",id:card.id}); }}>
+                  <Trash2 size={13}/> Apagar
+                </button>
+              </div>
               <div className="cc-visual" style={{background:card.color, cursor:"pointer"}} onClick={()=>setSelCard(isSelected?null:card.id)}>
                 <div className="cc-shine" />
                 <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14,gap:8}}>
-                  <div style={{fontSize:13,fontWeight:700,opacity:0.9,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{card.name}</div>
-                  <button className="btn btn-danger btn-icon btn-sm" style={{flexShrink:0}} onClick={e=>{e.stopPropagation();dispatch({type:"DEL_CARD",id:card.id});}}>
-                    <Trash2 size={12}/>
-                  </button>
+                  <div style={{fontSize:13,fontWeight:700,opacity:0.9}}>{card.name}</div>
                 </div>
                 <div style={{fontFamily:"JetBrains Mono",fontSize:"clamp(16px,5vw,22px)",fontWeight:700,letterSpacing:-1,color:"#000"}}>
                   {fmt(card.limit - card.used)} <span style={{fontSize:11,opacity:0.6}}>disp.</span>
@@ -1935,18 +1970,14 @@ function EmergencyReserve({ state, dispatch }) {
     const totalSaved = Object.values(contribs).reduce((s,v)=>s+v,0);
     const pct = r.finalTarget > 0 ? (totalSaved / r.finalTarget) * 100 : 0;
 
-    // Calcula meses com déficit — percorre últimos 12 meses
+    // Calcula déficit: apenas meses onde o usuário já registrou algo mas ficou abaixo
     let deficit = 0;
-    const now = new Date();
-    for (let i=0; i<12; i++) {
-      let m = now.getMonth() - i; let y = now.getFullYear();
-      if (m < 0) { m += 12; y--; }
-      const k = monthKey(m, y);
-      const contributed = contribs[k] || 0;
-      if (contributed < r.monthlyTarget) {
-        deficit += r.monthlyTarget - contributed;
+    Object.entries(contribs).forEach(([k, v]) => {
+      // Só conta como déficit meses ANTERIORES ao mês atual com valor insuficiente
+      if (k < mk && v < r.monthlyTarget) {
+        deficit += r.monthlyTarget - v;
       }
-    }
+    });
 
     const thisMonth   = contribs[mk] || 0;
     const thisMonthOk = thisMonth >= r.monthlyTarget;
@@ -2495,7 +2526,7 @@ export default function App() {
   // Persiste no localStorage sempre que o estado muda
   useEffect(() => { saveState(state); }, [state]);
 
-  const allTabs = [...TABS, { id:"more", label:"Mais", Icon:MoreHorizontal }, { id:"settings", label:"Config", Icon:MoreHorizontal }];
+  const allTabs = [...TABS, { id:"settings", label:"Config", Icon:MoreHorizontal }];
   const mobileTabs = TABS.slice(0, 5);
   const mobileMore = TABS.slice(5);
 
