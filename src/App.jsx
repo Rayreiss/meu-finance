@@ -202,22 +202,20 @@ select option { background: var(--s2); color: var(--text); }
 /* ── MODAL ── */
 .modal-bg {
   position: fixed; inset: 0; z-index: 200;
-  background: rgba(0,0,0,0.7); backdrop-filter: blur(6px);
+  background: rgba(0,0,0,0.75);
   display: flex; align-items: flex-end; justify-content: center;
-  /* Garante que o modal fica visível mesmo com teclado aberto */
-  padding-bottom: env(keyboard-inset-height, 0px);
 }
 @media (min-width: 640px) { .modal-bg { align-items: center; padding-bottom: 0; } }
 .modal-box {
   background: var(--s1); border: 1px solid var(--border2);
   border-radius: 22px 22px 0 0; padding: 24px 20px 32px;
   width: 100%; max-width: 460px;
-  /* Usa dvh para descontar teclado virtual no iOS/Android */
-  max-height: 85dvh;
-  max-height: 85vh; /* fallback */
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
+  max-height: 90vh;
+  overflow-y: scroll;
+  /* Crítico para Android: pointer-events explícito */
+  pointer-events: auto;
+  position: relative;
+  z-index: 201;
   animation: modalUp 0.28s cubic-bezier(0.34,1.56,0.64,1);
 }
 @media (min-width: 640px) { .modal-box { border-radius: 22px; max-height: 90vh; } }
@@ -1374,11 +1372,8 @@ function VariableExpenses({ state, dispatch }) {
   }
   function openAddTx(catId) { setTxForm({ categoryId:catId||"", amount:"", description:"", date:new Date().toISOString().slice(0,10), paymentMethod:"pix", cardId:"", installments:1 }); setModalTx(true); }
   function saveTx() {
-    // DEBUG — mostra o estado exato do form no momento do save
-    if (!txForm.categoryId || !txForm.amount || parseFloat(txForm.amount) <= 0) {
-      alert("Dados: categoria=" + txForm.categoryId + " | valor=" + txForm.amount + " | data=" + txForm.date + " | pagamento=" + txForm.paymentMethod);
-      return;
-    }
+    if (!txForm.categoryId) { alert("Selecione uma categoria"); return; }
+    if (!txForm.amount || parseFloat(txForm.amount) <= 0) { alert("Digite um valor válido"); return; }
     const baseAmt  = parseFloat(txForm.amount);
     const n        = parseInt(txForm.installments) || 1;
     const catName  = variableCategories.find(c=>c.id===txForm.categoryId)?.name || "";
@@ -1410,6 +1405,7 @@ function VariableExpenses({ state, dispatch }) {
       }
     }
     setModalTx(false);
+    setView("transactions"); // Mostra a lista de transações após registrar
   }
 
   return (
