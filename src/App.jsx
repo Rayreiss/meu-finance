@@ -1378,25 +1378,47 @@ function VariableExpenses({ state, dispatch }) {
     const n        = parseInt(txForm.installments) || 1;
     const catName  = variableCategories.find(c=>c.id===txForm.categoryId)?.name || "";
     const baseDate = new Date((txForm.date || new Date().toISOString().slice(0,10))+"T12:00:00");
-    // Registra 1 transação variável com valor total
-    dispatch({type:"ADD_TX", p:{
-      categoryId:   txForm.categoryId,
-      amount:       baseAmt,
-      description:  txForm.description || (n>1 ? `${catName} (total ${n}x)` : catName),
-      date:         baseDate.toISOString(),
-      paymentMethod:txForm.paymentMethod||"pix",
-      cardId:       txForm.paymentMethod==="credit" ? txForm.cardId : null,
-      installments: n,
-    }});
-    // Se crédito: lança cada parcela na fatura do mês correspondente
+    const parcela = parseFloat((baseAmt / n).toFixed(2));
+    const desc    = txForm.description || catName;
+
+    if (n === 1) {
+      // À vista: registra normalmente com valor total
+      dispatch({type:"ADD_TX", p:{
+        categoryId:   txForm.categoryId,
+        amount:       baseAmt,
+        description:  desc,
+        date:         baseDate.toISOString(),
+        paymentMethod:txForm.paymentMethod||"pix",
+        cardId:       txForm.paymentMethod==="credit" ? txForm.cardId : null,
+        installments: 1,
+      }});
+    } else {
+      // Parcelado: registra 1 transação POR MÊS com valor da parcela
+      // Assim cada mês só contabiliza o que de fato impacta o orçamento
+      for (let i=0; i<n; i++) {
+        const d = new Date(baseDate);
+        d.setMonth(d.getMonth() + i);
+        dispatch({type:"ADD_TX", p:{
+          categoryId:   txForm.categoryId,
+          amount:       parcela,
+          description:  `${desc} (${i+1}/${n})`,
+          date:         d.toISOString(),
+          paymentMethod:"credit",
+          cardId:       txForm.cardId || null,
+          installments: n,
+          installmentNum: i+1,
+        }});
+      }
+    }
+    // Lança na fatura do cartão se crédito
     if (txForm.paymentMethod==="credit" && txForm.cardId) {
       for (let i=0; i<n; i++) {
         const d = new Date(baseDate);
         d.setMonth(d.getMonth() + i);
         dispatch({type:"ADD_CARD_TX", p:{
           cardId:         txForm.cardId,
-          amount:         parseFloat((baseAmt/n).toFixed(2)),
-          description:    (txForm.description||catName) + (n>1 ? ` (${i+1}/${n})` : ""),
+          amount:         parcela,
+          description:    `${desc} (${i+1}/${n})`,
           date:           d.toISOString(),
           installments:   n,
           installmentNum: i+1,
