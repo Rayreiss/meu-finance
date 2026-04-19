@@ -392,7 +392,30 @@ const DEFAULT_CATS = [
   { id:"c6", name:"Vestuário",    limit:200,  color:"#7C83F5", priority:"optional",   icon:"👕" },
 ];
 
-const ICON_OPTS = ["🛒","🍽️","🚌","🎉","💊","👕","📱","💡","🎓","🐾","🏠","✈️","🎮","💄","🔧","📚","🏋️","🎵","☕","🍕"];
+const ICON_OPTS = [
+  // Alimentação
+  "🛒","🍽️","🍕","🍔","🥗","🍜","☕","🧋","🥤","🍺","🥩","🍱",
+  // Transporte
+  "🚌","🚗","🛵","✈️","🚇","⛽","🅿️","🚕",
+  // Casa
+  "🏠","🛋️","💡","💧","🔥","🔧","🪴","🏗️",
+  // Saúde & Bem-estar
+  "💊","🏋️","🧘","🩺","🦷","💉","😴","🧴",
+  // Lazer & Entretenimento
+  "🎉","🎮","🎬","🎵","🎨","📚","🎭","🎤","⚽","🏊",
+  // Tecnologia
+  "📱","💻","⌚","📷","🖥️","🎧","📺",
+  // Moda & Beleza
+  "👕","👟","💄","💍","👜","🕶️","✂️",
+  // Educação
+  "🎓","📖","✏️","🔬","🎒",
+  // Pets
+  "🐾","🐶","🐱","🐠",
+  // Finanças
+  "💳","💰","📈","🏦","💸","🎯",
+  // Outros
+  "🎁","🌍","🤝","🔒","⭐","🌟",
+];
 
 // ─────────────────────────────────────────────
 //  HELPERS
@@ -1852,38 +1875,215 @@ function CreditCards({ state, dispatch }) {
 // ─────────────────────────────────────────────
 //  ANÁLISES
 // ─────────────────────────────────────────────
-function Analytics({ state }) {
+function Analytics({ state, dispatch }) {
   const { income, fixedExpenses, variableCategories, transactions, creditCards, cardTransactions, currentMonth, currentYear } = state;
 
-  // Últimos 6 meses de dados
+  // ── Dados históricos 6 meses ──
   const history = useMemo(() => {
     const data = [];
     for(let i=5; i>=0; i--) {
       let m = currentMonth - i; let y = currentYear;
       if(m<0){m+=12;y--;}
-      const totalInc = income.reduce((s,x)=>s+x.amount,0);
-      const totalFix = fixedExpenses.reduce((s,x)=>s+x.amount,0);
-      const varSpent = transactions.filter(t=>isSameMonth(t.date,m,y)).reduce((s,t)=>s+t.amount,0);
+      const totalInc  = income.reduce((s,x)=>s+effectiveIncome(x,m,y),0);
+      const totalFix  = fixedExpenses.reduce((s,x)=>s+effectiveFixed(x,m,y),0);
+      const varSpent  = transactions.filter(t=>isSameMonth(t.date,m,y)).reduce((s,t)=>s+t.amount,0);
       const cardSpent = cardTransactions.filter(t=>isSameMonth(t.date,m,y)).reduce((s,t)=>s+t.amount,0);
-      const total = totalFix + varSpent + cardSpent;
-      data.push({ name: MONTHS_SHORT[m], renda: totalInc, gastos: total, saldo: totalInc-total, mes:m, ano:y });
+      const total     = totalFix + varSpent + cardSpent;
+      data.push({ name:MONTHS_SHORT[m], renda:totalInc, fixos:totalFix, variaveis:varSpent, cartao:cardSpent, gastos:total, saldo:totalInc-total, mes:m, ano:y });
     }
     return data;
-  }, [income, fixedExpenses, transactions, cardTransactions, currentMonth, currentYear]);
+  }, [income,fixedExpenses,transactions,cardTransactions,currentMonth,currentYear]);
+
+  const thisMonth = history[history.length-1] || {};
+  const lastMonth = history[history.length-2] || {};
 
   const catPie = useMemo(() => {
     return variableCategories.map(cat => ({
-      name: `${cat.icon} ${cat.name}`,
-      value: transactions.filter(t=>t.categoryId===cat.id&&isSameMonth(t.date,currentMonth,currentYear)).reduce((s,t)=>s+t.amount,0),
-      color: cat.color,
-    })).filter(c=>c.value>0);
-  }, [variableCategories, transactions, currentMonth, currentYear]);
+      name:`${cat.icon} ${cat.name}`, icon:cat.icon, catName:cat.name,
+      value:transactions.filter(t=>t.categoryId===cat.id&&isSameMonth(t.date,currentMonth,currentYear)).reduce((s,t)=>s+t.amount,0),
+      valueLast:transactions.filter(t=>t.categoryId===cat.id&&isSameMonth(t.date,lastMonth.mes,lastMonth.ano)).reduce((s,t)=>s+t.amount,0),
+      color:cat.color, limit:cat.limit,
+    })).filter(c=>c.value>0||c.valueLast>0);
+  }, [variableCategories,transactions,currentMonth,currentYear,lastMonth]);
 
-  const totalVar = catPie.reduce((s,c)=>s+c.value,0);
-  const totalIncome = income.reduce((s,x)=>s+x.amount,0);
-  const totalFixed = fixedExpenses.reduce((s,x)=>s+x.amount,0);
-  const savings = totalIncome - totalFixed - totalVar;
+  const totalVar    = catPie.filter(c=>c.value>0).reduce((s,c)=>s+c.value,0);
+  const totalIncome = income.reduce((s,x)=>s+effectiveIncome(x,currentMonth,currentYear),0);
+  const totalFixed  = fixedExpenses.reduce((s,x)=>s+effectiveFixed(x,currentMonth,currentYear),0);
+  const savings     = totalIncome - totalFixed - totalVar;
   const savingsRate = totalIncome > 0 ? (savings/totalIncome)*100 : 0;
+
+  // ── Geração de insights inteligentes ──
+  const insights = useMemo(() => {
+    const list = [];
+    if (!totalIncome) return list;
+
+    // 1. Taxa de poupança
+    if (savingsRate < 0)
+      list.push({ type:"danger", icon:"🚨", title:"Saldo negativo!", body:`Você está gastando ${fmt(Math.abs(savings))} a mais do que ganha. Revise gastos urgentemente.` });
+    else if (savingsRate < 10)
+      list.push({ type:"danger", icon:"⚠️", title:"Poupança crítica", body:`Você está poupando apenas ${savingsRate.toFixed(1)}% da renda. O ideal é pelo menos 10%. Verifique gastos opcionais 🔵.` });
+    else if (savingsRate < 20)
+      list.push({ type:"warning", icon:"📊", title:"Poupança abaixo do ideal", body:`Você poupa ${savingsRate.toFixed(1)}% — bom, mas tente chegar a 20%. Cortando ${fmt(totalIncome*0.2 - savings)} em opcionais você chegaria lá.` });
+    else
+      list.push({ type:"success", icon:"🎉", title:"Poupança saudável!", body:`Parabéns! Você está poupando ${savingsRate.toFixed(1)}% da renda. Continue assim e sua reserva de emergência crescerá rapidamente.` });
+
+    // 2. Crescimento de gastos mês a mês
+    if (lastMonth.gastos > 0) {
+      const delta = thisMonth.gastos - lastMonth.gastos;
+      const pctDelta = (delta / lastMonth.gastos) * 100;
+      if (pctDelta > 20)
+        list.push({ type:"danger", icon:"📈", title:"Gastos acelerando", body:`Seus gastos aumentaram ${pctDelta.toFixed(0)}% em relação ao mês passado (+${fmt(delta)}). Analise quais categorias subiram.` });
+      else if (pctDelta < -10)
+        list.push({ type:"success", icon:"📉", title:"Gastos caindo", body:`Ótimo! Você gastou ${Math.abs(pctDelta).toFixed(0)}% menos que o mês passado (${fmt(Math.abs(delta))} a menos).` });
+    }
+
+    // 3. Categorias acima do limite
+    const overLimit = catPie.filter(c=>c.limit>0 && c.value>c.limit);
+    if (overLimit.length > 0)
+      list.push({ type:"danger", icon:"🚫", title:`${overLimit.length} categoria${overLimit.length>1?"s":""} acima do limite`, body:`${overLimit.map(c=>`${c.icon} ${c.catName}: +${fmt(c.value-c.limit)}`).join(" · ")}. Considere revisar os limites ou reduzir os gastos.` });
+
+    // 4. Categoria que mais cresceu
+    const grew = catPie.filter(c=>c.valueLast>0 && c.value>0).map(c=>({...c, delta:c.value-c.valueLast, pct:((c.value-c.valueLast)/c.valueLast)*100})).sort((a,b)=>b.pct-a.pct);
+    if (grew.length > 0 && grew[0].pct > 30)
+      list.push({ type:"warning", icon:"👀", title:`${grew[0].icon} ${grew[0].catName} cresceu muito`, body:`Essa categoria aumentou ${grew[0].pct.toFixed(0)}% em relação ao mês passado (${fmt(grew[0].valueLast)} → ${fmt(grew[0].value)}). Vale investigar.` });
+
+    // 5. Comprometimento com fixos
+    const fixPct = totalIncome > 0 ? (totalFixed/totalIncome)*100 : 0;
+    if (fixPct > 60)
+      list.push({ type:"danger", icon:"🔒", title:"Renda muito comprometida", body:`${fixPct.toFixed(0)}% da sua renda vai para fixos. O ideal é abaixo de 50%. Revise itens opcionais nos fixos.` });
+    else if (fixPct > 50)
+      list.push({ type:"warning", icon:"🏠", title:"Fixos altos", body:`${fixPct.toFixed(0)}% da renda em fixos. Está no limite — qualquer imprevisto pode comprometer o orçamento.` });
+
+    // 6. Categoria opcional mais cara
+    const optionalCats = variableCategories.filter(c=>c.priority==="optional");
+    const optSpent = optionalCats.reduce((s,c)=>{
+      return s + transactions.filter(t=>t.categoryId===c.id&&isSameMonth(t.date,currentMonth,currentYear)).reduce((ss,t)=>ss+t.amount,0);
+    }, 0);
+    if (optSpent > totalIncome * 0.15)
+      list.push({ type:"warning", icon:"✨", title:"Gastos opcionais altos", body:`Você gastou ${fmt(optSpent)} em categorias opcionais (${((optSpent/totalIncome)*100).toFixed(0)}% da renda). São os primeiros a cortar em aperto.` });
+
+    // 7. Projeção do mês
+    const dim = daysInMonth(currentMonth, currentYear);
+    const isCurrentMonth = currentMonth===today.getMonth()&&currentYear===today.getFullYear();
+    if (isCurrentMonth && today.getDate() > 5) {
+      const dailyRate = totalVar / today.getDate();
+      const projected = dailyRate * dim;
+      const projSaldo = totalIncome - totalFixed - projected;
+      if (projected > totalVar * 1.3)
+        list.push({ type:"warning", icon:"🔮", title:"Projeção do mês", body:`No ritmo atual, você vai gastar ${fmt(projected)} em variáveis até o fim do mês. Saldo projetado: ${fmt(projSaldo) }.` });
+    }
+
+    return list;
+  }, [savingsRate, savings, totalIncome, totalFixed, totalVar, catPie, thisMonth, lastMonth, variableCategories, transactions, currentMonth, currentYear]);
+
+  // ── Export extrato ──
+  function exportStatement() {
+    const monthTxs  = transactions.filter(t=>isSameMonth(t.date,currentMonth,currentYear))
+      .sort((a,b)=>new Date(a.date)-new Date(b.date));
+    const cardTxs   = cardTransactions.filter(t=>isSameMonth(t.date,currentMonth,currentYear));
+    const totalInc  = income.reduce((s,x)=>s+effectiveIncome(x,currentMonth,currentYear),0);
+    const totalFix  = fixedExpenses.reduce((s,x)=>s+effectiveFixed(x,currentMonth,currentYear),0);
+    const totalVarE = monthTxs.reduce((s,t)=>s+t.amount,0);
+    const totalCardE= cardTxs.reduce((s,t)=>s+t.amount,0);
+    const saldo     = totalInc - totalFix - totalVarE - totalCardE;
+
+    const pm = (id) => { const m = PAYMENT_METHODS.find(p=>p.id===id); return m?`${m.icon} ${m.label}`:"—"; };
+    const getCat = (id) => variableCategories.find(c=>c.id===id);
+    const getCard = (id) => creditCards.find(c=>c.id===id);
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Extrato ${MONTHS[currentMonth]} ${currentYear} — Monetra</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #f5f5f5; color: #222; padding: 32px; }
+  .wrap { max-width: 760px; margin: 0 auto; background: white; border-radius: 12px; padding: 36px; box-shadow: 0 2px 20px rgba(0,0,0,0.1); }
+  h1 { font-size: 24px; font-weight: 800; margin-bottom: 4px; }
+  .sub { color: #666; font-size: 14px; margin-bottom: 28px; }
+  .summary { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 28px; }
+  .sum-card { background: #f8f8f8; border-radius: 10px; padding: 14px; }
+  .sum-label { font-size: 11px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 5px; }
+  .sum-val { font-size: 20px; font-weight: 800; font-family: monospace; }
+  .green { color: #22c55e; } .red { color: #ef4444; } .orange { color: #f97316; } .blue { color: #3b82f6; }
+  h2 { font-size: 16px; font-weight: 700; margin: 24px 0 10px; padding-bottom: 8px; border-bottom: 2px solid #eee; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; padding: 8px 10px; background: #f0f0f0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.3px; color: #666; }
+  td { padding: 9px 10px; border-bottom: 1px solid #f0f0f0; }
+  tr:last-child td { border-bottom: none; }
+  .fixed-row td:last-child { color: #ef4444; font-weight: 700; font-family: monospace; }
+  .var-row td:last-child { color: #ef4444; font-weight: 700; font-family: monospace; }
+  .footer { margin-top: 32px; text-align: center; font-size: 12px; color: #aaa; }
+  @media print { body { background: white; padding: 0; } .wrap { box-shadow: none; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>💰 Extrato Financeiro</h1>
+  <div class="sub">${MONTHS[currentMonth]} de ${currentYear} · Gerado pelo Monetra em ${new Date().toLocaleDateString("pt-BR")}</div>
+
+  <div class="summary">
+    <div class="sum-card"><div class="sum-label">Renda</div><div class="sum-val green">R$ ${totalInc.toFixed(2).replace(".",",")}</div></div>
+    <div class="sum-card"><div class="sum-label">Fixos</div><div class="sum-val red">R$ ${totalFix.toFixed(2).replace(".",",")}</div></div>
+    <div class="sum-card"><div class="sum-label">Variáveis</div><div class="sum-val orange">R$ ${totalVarE.toFixed(2).replace(".",",")}</div></div>
+    <div class="sum-card"><div class="sum-label">Saldo</div><div class="sum-val ${saldo>=0?"green":"red"}">R$ ${saldo.toFixed(2).replace(".",",")}</div></div>
+  </div>
+
+  <h2>🏠 Gastos Fixos</h2>
+  <table>
+    <tr><th>Descrição</th><th>Prioridade</th><th>Valor</th></tr>
+    ${fixedExpenses.map(f=>`<tr class="fixed-row"><td>${f.name}</td><td>${f.priority==="essential"?"🔴 Essencial":f.priority==="important"?"🟡 Importante":"🔵 Opcional"}</td><td>R$ ${effectiveFixed(f,currentMonth,currentYear).toFixed(2).replace(".",",")}</td></tr>`).join("")}
+    <tr style="background:#fff3f3"><td colspan="2"><strong>Total fixos</strong></td><td style="color:#ef4444;font-weight:800;font-family:monospace">R$ ${totalFix.toFixed(2).replace(".",",")}</td></tr>
+  </table>
+
+  <h2>🛒 Gastos Variáveis</h2>
+  <table>
+    <tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Pagamento</th><th>Valor</th></tr>
+    ${monthTxs.map(t=>{
+      const cat = getCat(t.categoryId);
+      const card = t.cardId ? getCard(t.cardId) : null;
+      return `<tr class="var-row">
+        <td>${new Date(t.date).toLocaleDateString("pt-BR")}</td>
+        <td>${t.description||cat?.name||"—"}</td>
+        <td>${cat?cat.icon+" "+cat.name:"—"}</td>
+        <td>${card?`💳 ${card.name}`:pm(t.paymentMethod)}</td>
+        <td>R$ ${t.amount.toFixed(2).replace(".",",")}</td>
+      </tr>`;
+    }).join("")}
+    <tr style="background:#fff3f3"><td colspan="4"><strong>Total variáveis</strong></td><td style="color:#ef4444;font-weight:800;font-family:monospace">R$ ${totalVarE.toFixed(2).replace(".",",")}</td></tr>
+  </table>
+
+  ${cardTxs.length>0?`
+  <h2>💳 Faturas de Cartão</h2>
+  <table>
+    <tr><th>Data</th><th>Descrição</th><th>Cartão</th><th>Parcelas</th><th>Valor</th></tr>
+    ${cardTxs.map(t=>{
+      const card = getCard(t.cardId);
+      return `<tr class="var-row">
+        <td>${new Date(t.date).toLocaleDateString("pt-BR")}</td>
+        <td>${t.description||"—"}</td>
+        <td>${card?card.name:"—"}</td>
+        <td>${t.installments>1?`${t.installmentNum}/${t.installments}`:"À vista"}</td>
+        <td>R$ ${t.amount.toFixed(2).replace(".",",")}</td>
+      </tr>`;
+    }).join("")}
+    <tr style="background:#fff3f3"><td colspan="4"><strong>Total cartões</strong></td><td style="color:#ef4444;font-weight:800;font-family:monospace">R$ ${totalCardE.toFixed(2).replace(".",",")}</td></tr>
+  </table>`:""}
+
+  <div class="footer">Monetra · Controle Financeiro Pessoal · ${new Date().toLocaleString("pt-BR")}</div>
+</div>
+</body>
+</html>`;
+
+    const blob = new Blob([html], { type: "text/html" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `extrato-${MONTHS[currentMonth].toLowerCase()}-${currentYear}.html`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
 
   const CustomTooltip = ({active,payload,label}) => {
     if(!active||!payload?.length) return null;
@@ -1899,41 +2099,73 @@ function Analytics({ state }) {
 
   return (
     <div className="page fade-in">
-      <div className="page-header"><h1>Análises</h1></div>
-
-      <div className="stat-grid mb-4">
-        <StatCard label="Taxa de Poupança" value={`${savingsRate.toFixed(1)}%`} sub={savingsRate>=20?"🟢 Ótimo":savingsRate>=10?"🟡 Regular":"🔴 Baixo"} color={savingsRate>=20?"var(--success)":savingsRate>=10?"var(--warning)":"var(--danger)"} />
-        <StatCard label="Comprom. Fixo" value={`${totalIncome>0?((totalFixed/totalIncome)*100).toFixed(0):0}%`} sub="da renda mensal" color="var(--danger)" />
-        <StatCard label="Poupado" value={fmt(Math.max(savings,0))} color="var(--success)" />
-        <StatCard label="Gasto Total" value={fmt(totalFixed+totalVar)} sub="fixos + variáveis" color="var(--warning)" />
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between",marginBottom:20,flexWrap:"wrap",gap:10}}>
+        <h1>Análises</h1>
+        <button className="btn btn-ghost btn-sm" onClick={exportStatement}>
+          <Download size={14}/> Extrato {MONTHS[currentMonth]}
+        </button>
       </div>
 
-      {savingsRate < 10 && <AlertBanner type="danger" msg="Sua taxa de poupança está abaixo de 10%. Recomendamos revisar gastos opcionais." />}
-      {savingsRate >= 10 && savingsRate < 20 && <AlertBanner type="warning" msg="Tente aumentar sua taxa de poupança para 20% ou mais para segurança financeira." />}
-      {savingsRate >= 20 && <AlertBanner type="success" msg="Excelente! Você está poupando mais de 20% da sua renda." />}
+      {/* STATS */}
+      <div className="stat-grid mb-4">
+        <StatCard label="Taxa de Poupança" value={`${savingsRate.toFixed(1)}%`} sub={savingsRate>=20?"🟢 Ótimo":savingsRate>=10?"🟡 Regular":"🔴 Baixo"} color={savingsRate>=20?"var(--success)":savingsRate>=10?"var(--warning)":"var(--danger)"} />
+        <StatCard label="Comprom. Fixo"    value={`${totalIncome>0?((totalFixed/totalIncome)*100).toFixed(0):0}%`} sub="da renda" color="var(--danger)" />
+        <StatCard label="Poupado"          value={fmt(Math.max(savings,0))} color="var(--success)" />
+        <StatCard label="Gasto Total"      value={fmt(totalFixed+totalVar)} sub="fixos + variáveis" color="var(--warning)" />
+      </div>
 
-      {/* GRÁFICO HISTÓRICO */}
+      {/* INSIGHTS */}
+      {insights.length > 0 && (
+        <div className="card mb-4" style={{padding:"16px 16px 8px"}}>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14}}>
+            <span style={{fontSize:16}}>💡</span>
+            <h3>Insights do Monetra</h3>
+            <span style={{fontSize:11,color:"var(--text3)",marginLeft:"auto"}}>{insights.length} análise{insights.length>1?"s":""}</span>
+          </div>
+          {insights.map((ins,i) => (
+            <div key={i} style={{
+              padding:"12px 14px", borderRadius:12, marginBottom:8,
+              background:ins.type==="danger"?"var(--danger2)":ins.type==="success"?"var(--success2)":ins.type==="warning"?"var(--warning2)":"var(--info2)",
+              border:`1px solid ${ins.type==="danger"?"rgba(255,107,107,0.3)":ins.type==="success"?"rgba(61,213,152,0.3)":ins.type==="warning"?"rgba(255,181,71,0.3)":"rgba(56,189,248,0.3)"}`,
+            }}>
+              <div style={{display:"flex",alignItems:"flex-start",gap:10}}>
+                <span style={{fontSize:18,flexShrink:0}}>{ins.icon}</span>
+                <div>
+                  <div style={{fontWeight:700,fontSize:13,marginBottom:3,color:ins.type==="danger"?"var(--danger)":ins.type==="success"?"var(--success)":ins.type==="warning"?"var(--warning)":"var(--info)"}}>{ins.title}</div>
+                  <div style={{fontSize:12,color:"var(--text2)",lineHeight:1.5}}>{ins.body}</div>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* HISTÓRICO */}
       <div className="card mb-4">
         <h3 className="mb-4">Histórico de 6 Meses</h3>
-        <ResponsiveContainer width="100%" height={220}>
+        <ResponsiveContainer width="100%" height={200}>
           <BarChart data={history} margin={{top:0,right:0,left:0,bottom:0}} barGap={4}>
             <XAxis dataKey="name" tick={{fill:"#8B93B0",fontSize:12}} axisLine={false} tickLine={false} />
             <YAxis hide />
             <Tooltip content={<CustomTooltip />} />
-            <Bar dataKey="renda" name="Renda" fill="rgba(61,213,152,0.5)" radius={[5,5,0,0]} />
-            <Bar dataKey="gastos" name="Gastos" fill="rgba(255,107,107,0.7)" radius={[5,5,0,0]} />
+            <Bar dataKey="renda"     name="Renda"     fill="rgba(61,213,152,0.5)"  radius={[5,5,0,0]} />
+            <Bar dataKey="gastos"    name="Gastos"    fill="rgba(255,107,107,0.7)" radius={[5,5,0,0]} />
           </BarChart>
         </ResponsiveContainer>
-        <div className="flex gap-4 mt-2 justify-end">
-          <span className="flex items-center gap-1 text-xs color-muted"><span style={{width:10,height:10,borderRadius:2,background:"rgba(61,213,152,0.5)",display:"inline-block"}}/>Renda</span>
-          <span className="flex items-center gap-1 text-xs color-muted"><span style={{width:10,height:10,borderRadius:2,background:"rgba(255,107,107,0.7)",display:"inline-block"}}/>Gastos</span>
+        <div style={{display:"flex",gap:12,justifyContent:"flex-end",marginTop:8}}>
+          {[["rgba(61,213,152,0.5)","Renda"],["rgba(255,107,107,0.7)","Gastos"]].map(([c,l])=>(
+            <span key={l} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"var(--text3)"}}>
+              <span style={{width:10,height:10,borderRadius:2,background:c,display:"inline-block"}}/>
+              {l}
+            </span>
+          ))}
         </div>
       </div>
 
-      {/* SALDO MENSAL */}
+      {/* SALDO */}
       <div className="card mb-4">
-        <h3 className="mb-4">Saldo por Mês</h3>
-        <ResponsiveContainer width="100%" height={180}>
+        <h3 className="mb-4">Evolução do Saldo</h3>
+        <ResponsiveContainer width="100%" height={160}>
           <AreaChart data={history} margin={{top:5,right:0,left:0,bottom:0}}>
             <defs>
               <linearGradient id="gradPos" x1="0" y1="0" x2="0" y2="1">
@@ -1949,28 +2181,61 @@ function Analytics({ state }) {
         </ResponsiveContainer>
       </div>
 
-      {/* PIZZA POR CATEGORIA */}
-      {catPie.length > 0 && (
+      {/* GASTOS POR CATEGORIA COM COMPARAÇÃO */}
+      {catPie.filter(c=>c.value>0).length > 0 && (
+        <div className="card mb-4">
+          <h3 className="mb-4">Categorias — {MONTHS[currentMonth]} vs {MONTHS[lastMonth.mes>=0?lastMonth.mes:11]}</h3>
+          {catPie.filter(c=>c.value>0).sort((a,b)=>b.value-a.value).map((c,i)=>{
+            const delta = c.value - c.valueLast;
+            const pctOfTotal = totalVar > 0 ? (c.value/totalVar)*100 : 0;
+            return (
+              <div key={i} style={{marginBottom:14}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:5}}>
+                  <div style={{display:"flex",alignItems:"center",gap:7}}>
+                    <span style={{fontSize:16}}>{c.icon}</span>
+                    <span style={{fontSize:13,fontWeight:600}}>{c.catName}</span>
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    {c.valueLast > 0 && (
+                      <span style={{fontSize:11,fontWeight:700,color:delta>0?"var(--danger)":"var(--success)"}}>
+                        {delta>0?"+":""}{fmt(delta)}
+                      </span>
+                    )}
+                    <span style={{fontSize:13,fontWeight:700,fontFamily:"JetBrains Mono",color:c.color}}>{fmt(c.value)}</span>
+                    <span style={{fontSize:11,color:"var(--text3)"}}>({pctOfTotal.toFixed(0)}%)</span>
+                  </div>
+                </div>
+                <div style={{background:"var(--s3)",borderRadius:20,height:6,overflow:"hidden"}}>
+                  <div style={{height:"100%",width:`${pctOfTotal}%`,background:c.limit>0&&c.value>c.limit?"var(--danger)":c.color,borderRadius:20,transition:"width 0.6s"}}/>
+                </div>
+                {c.limit > 0 && c.value > c.limit && (
+                  <div style={{fontSize:10,color:"var(--danger)",marginTop:3}}>⚠️ +{fmt(c.value-c.limit)} acima do limite</div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* PIZZA */}
+      {catPie.filter(c=>c.value>0).length > 0 && (
         <div className="card">
-          <h3 className="mb-4">Gastos por Categoria — {MONTHS[currentMonth]}</h3>
+          <h3 className="mb-4">Distribuição de Gastos</h3>
           <div style={{display:"flex",gap:16,flexWrap:"wrap",alignItems:"center",justifyContent:"center"}}>
             <PieChart width={150} height={150}>
-              <Pie data={catPie} cx={75} cy={75} innerRadius={45} outerRadius={75} paddingAngle={2} dataKey="value">
-                {catPie.map((c,i) => <Cell key={i} fill={c.color} />)}
+              <Pie data={catPie.filter(c=>c.value>0)} cx={75} cy={75} innerRadius={40} outerRadius={72} paddingAngle={2} dataKey="value">
+                {catPie.filter(c=>c.value>0).map((c,i) => <Cell key={i} fill={c.color} />)}
               </Pie>
               <Tooltip formatter={(v)=>[fmt(v),"Gasto"]} contentStyle={{background:"#0E1118",border:"1px solid #1C2333",borderRadius:10,fontFamily:"Outfit",fontSize:13}} />
             </PieChart>
-            <div style={{flex:1}}>
-              {catPie.map((c,i) => (
-                <div key={i} className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <div style={{width:10,height:10,borderRadius:2,background:c.color,flexShrink:0}}/>
-                    <span className="text-sm">{c.name}</span>
+            <div style={{flex:1,minWidth:150}}>
+              {catPie.filter(c=>c.value>0).sort((a,b)=>b.value-a.value).map((c,i) => (
+                <div key={i} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:7,gap:6}}>
+                  <div style={{display:"flex",alignItems:"center",gap:6,minWidth:0,flex:1}}>
+                    <div style={{width:9,height:9,borderRadius:2,background:c.color,flexShrink:0}}/>
+                    <span style={{fontSize:12,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.name}</span>
                   </div>
-                  <div className="text-sm font-bold mono">
-                    {fmt(c.value)}
-                    <span className="text-xs color-muted ml-1">({totalVar>0?((c.value/totalVar)*100).toFixed(0):0}%)</span>
-                  </div>
+                  <span style={{fontSize:12,fontWeight:700,fontFamily:"JetBrains Mono",flexShrink:0,color:c.color}}>{fmt(c.value)}</span>
                 </div>
               ))}
             </div>
@@ -1980,7 +2245,6 @@ function Analytics({ state }) {
     </div>
   );
 }
-
 
 // ─────────────────────────────────────────────
 //  RESERVA DE EMERGÊNCIA
